@@ -56,6 +56,7 @@ import ai.rever.boss.plugin.api.Panel.Companion.left
 import ai.rever.boss.plugin.api.Panel.Companion.top
 import ai.rever.boss.plugin.api.PluginLoaderDelegate
 import ai.rever.boss.plugin.api.TabInfo
+import ai.rever.boss.plugin.browser.ActiveBrowserRegistry
 import ai.rever.boss.plugin.sandbox.notification.ToastMessage
 import ai.rever.boss.plugin.sandbox.notification.ToastType
 import ai.rever.boss.plugin.tab.codeeditor.EditorTabInfo
@@ -70,6 +71,7 @@ import ai.rever.boss.run.RunExecutionService
 import ai.rever.boss.search.SearchCommandDispatchOutcome
 import ai.rever.boss.search.SearchCommandDispatcher
 import ai.rever.boss.search.SearchCommandInvocation
+import ai.rever.boss.search.SearchCommandTargets
 import ai.rever.boss.search.SearchSources
 import ai.rever.boss.search.ToolSearchRecord
 import ai.rever.boss.search.rememberSpotlightFileIndexer
@@ -82,6 +84,7 @@ import ai.rever.boss.terminal.TerminalLinkSettingsManager
 import ai.rever.boss.utils.WindowFocusManager
 import ai.rever.boss.utils.extractFileName
 import ai.rever.boss.utils.logging.LogCategory
+import ai.rever.boss.window.ClosedTabHistory
 import ai.rever.boss.window.MenuActionsHandler
 import ai.rever.boss.window.Project
 import ai.rever.boss.window.WindowOperations
@@ -572,8 +575,20 @@ internal fun BossAppDialogs(state: BossAppState) {
             },
             onCommandSelect = { actionId ->
                 var restoreMainWindowFocus = true
+                val targets =
+                    SearchCommandTargets(
+                        activePanelTabCount =
+                            splitViewState
+                                .getActiveTabsComponent()
+                                ?.tabsState
+                                ?.value
+                                ?.tabs
+                                ?.size ?: 0,
+                        hasClosedTabs = ClosedTabHistory.hasEntries(windowId),
+                        hasActiveBrowser = ActiveBrowserRegistry.hasActiveMainPanelBrowser(windowId),
+                    )
                 val outcome =
-                    SearchCommandDispatcher.dispatch(actionId, windowId) { invocation ->
+                    SearchCommandDispatcher.dispatch(actionId, windowId, targets) { invocation ->
                         // Close before emitting an event so focus-taking commands do not compete
                         // with Spotlight's dialog window.
                         state.showGlobalSearchDialog = false
@@ -735,6 +750,7 @@ internal fun BossAppDialogs(state: BossAppState) {
                         )
                     }
                 }
+                outcome
             },
             onToolSelect = { panelId ->
                 state.showGlobalSearchDialog = false

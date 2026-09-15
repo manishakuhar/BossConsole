@@ -10,6 +10,7 @@ import kotlin.test.assertTrue
 
 class SearchCommandDispatcherTest {
     private val windowId = "window-under-test"
+    private val availableTargets = SearchCommandTargets(8, hasClosedTabs = true, hasActiveBrowser = true)
 
     private fun invocation(
         action: SearchCommandInvocation.Action,
@@ -108,7 +109,7 @@ class SearchCommandDispatcherTest {
     fun `production dispatcher emits exact ordered invocations for every supported action`() {
         expectedDispatches.forEach { (actionId, expected) ->
             val actual = mutableListOf<SearchCommandInvocation>()
-            val outcome = SearchCommandDispatcher.dispatch(actionId, windowId, actual::add)
+            val outcome = SearchCommandDispatcher.dispatch(actionId, windowId, availableTargets, actual::add)
 
             assertEquals(SearchCommandDispatchOutcome.Dispatched, outcome, actionId)
             assertEquals(expected, actual, actionId)
@@ -119,7 +120,7 @@ class SearchCommandDispatcherTest {
     fun `unsupported and stale ids are explicit and never invoke a target`() {
         (unsupported + "stale.command").forEach { actionId ->
             val actual = mutableListOf<SearchCommandInvocation>()
-            val outcome = SearchCommandDispatcher.dispatch(actionId, windowId, actual::add)
+            val outcome = SearchCommandDispatcher.dispatch(actionId, windowId, availableTargets, actual::add)
 
             assertIs<SearchCommandDispatchOutcome.Rejected>(outcome, actionId)
             assertTrue(outcome.reason.isNotBlank(), actionId)

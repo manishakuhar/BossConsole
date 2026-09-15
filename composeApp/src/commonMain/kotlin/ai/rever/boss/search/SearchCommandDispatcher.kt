@@ -165,12 +165,19 @@ object SearchCommandDispatcher {
     fun dispatch(
         actionId: String,
         windowId: String,
+        targets: SearchCommandTargets,
         invoke: (SearchCommandInvocation) -> Unit,
     ): SearchCommandDispatchOutcome =
         when (val classification = SearchCommandCatalog.classifications[actionId]) {
             is SearchCommandClassification.Supported -> {
-                classification.invocations(windowId).forEach(invoke)
-                SearchCommandDispatchOutcome.Dispatched
+                val invocations = classification.invocations(windowId)
+                val reason = invocations.firstNotNullOfOrNull(targets::unavailableReason)
+                if (reason != null) {
+                    SearchCommandDispatchOutcome.Rejected(reason)
+                } else {
+                    invocations.forEach(invoke)
+                    SearchCommandDispatchOutcome.Dispatched
+                }
             }
 
             is SearchCommandClassification.Unsupported -> {

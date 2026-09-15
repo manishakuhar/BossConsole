@@ -32,6 +32,8 @@ internal class OrderedWorkspaceMutations(
     }
 
     /** Awaiter cancellation does not interrupt an already admitted disk transaction. */
+    // This queue boundary isolates arbitrary backend failures so later requests can still run.
+    @Suppress("TooGenericExceptionCaught")
     fun <T> submit(action: suspend () -> T): Deferred<Result<T>> {
         val completion = CompletableDeferred<Result<T>>()
         val request =

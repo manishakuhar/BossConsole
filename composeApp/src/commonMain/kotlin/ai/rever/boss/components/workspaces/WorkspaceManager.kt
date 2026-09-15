@@ -456,7 +456,9 @@ class WorkspaceManager internal constructor(
             persistWorkspace(saved)
             // Saving is not switching. Neither another Space nor edits made during I/O may be
             // replaced by the captured snapshot. Equality is insufficient after an A -> B -> A switch.
-            if (currentRevision == expectedRevision && _currentWorkspace.value?.id == current.id) _currentWorkspace.value = saved
+            if (currentRevision == expectedRevision && _currentWorkspace.value?.id == current.id) {
+                _currentWorkspace.value = saved
+            }
             saved
         }
 
@@ -706,7 +708,9 @@ class WorkspaceManager internal constructor(
             val existing = savedCopyOf(workspaceId) ?: error("Space no longer exists")
             check(isUserOwnedSpace(workspaceId)) { "A shipped Space cannot be renamed" }
             require(newName.isNotEmpty()) { "Space name cannot be empty" }
-            check(_workspaces.value.none { it.id != workspaceId && it.name == newName }) { "Space name is already in use" }
+            check(_workspaces.value.none { it.id != workspaceId && it.name == newName }) {
+                "Space name is already in use"
+            }
             if (existing.name == newName) return@submit existing
             val renamed = existing.copy(name = newName, timestamp = Clock.System.now().toEpochMilliseconds())
             persistWorkspace(renamed)

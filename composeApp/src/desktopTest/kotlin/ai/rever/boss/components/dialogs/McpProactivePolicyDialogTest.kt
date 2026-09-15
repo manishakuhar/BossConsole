@@ -24,6 +24,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -79,7 +80,8 @@ class McpProactivePolicyDialogTest {
                     },
             ) {
                 val width = (if (windowSize.width > 0) windowSize.width else 700).dp
-                Box(Modifier.size(width, 360.dp).clipToBounds()) { content() }
+                val height = (if (windowSize.height > 0) windowSize.height else 360).dp
+                Box(Modifier.size(width, height).clipToBounds()) { content() }
             }
         }
         rule.mainClock.advanceTimeBy(250)
@@ -91,7 +93,8 @@ class McpProactivePolicyDialogTest {
         if (System.getenv("BOSS_REVIEW_CAPTURE") == "1") captureLayout()
         rule.onNodeWithText("Close").assertIsDisplayed()
         val bounds = rule.onNodeWithText("Close").getUnclippedBoundsInRoot()
-        assertTrue(bounds.top >= 0.dp && bounds.bottom <= 360.dp, "Close bounds: $bounds")
+        val windowBounds = rule.onRoot().getUnclippedBoundsInRoot()
+        assertTrue(bounds.top >= windowBounds.top && bounds.bottom <= windowBounds.bottom, "Close bounds: $bounds")
     }
 
     private fun captureLayout() {
@@ -123,6 +126,102 @@ class McpProactivePolicyDialogTest {
         rule.runOnIdle { assertTrue(closed) }
     }
 
+    @Test fun `custom selection works in a short light window`() {
+        val tools = listOf(McpToolIdentity("read", "provider", 0, "Read the current document", readOnly = true))
+        var saved = emptyList<ai.rever.boss.mcp.McpSectionPolicyChange>()
+        show(light = true) {
+            McpPolicyManagerDialog(
+                emptyMap(),
+                tools,
+                { true },
+                { _, _ -> McpProactivePolicyOutcome.Saved },
+                {},
+                {},
+                sectionTools = tools,
+                onApplySection = {
+                    saved = it
+                    McpProactivePolicyOutcome.Saved
+                },
+            )
+        }
+        rule.onNodeWithText("Custom", substring = false).performScrollTo().performClick()
+        rule.onNodeWithContentDescription("Allow read").performScrollTo().performClick()
+        rule.runOnIdle { assertTrue(saved.isEmpty()) }
+        captureTheme = "sections-light"
+        closeIsInsideWindow()
+        rule.onNodeWithText("Confirm section changes").performScrollTo().performClick()
+        rule.runOnIdle { assertEquals(McpPolicyAction.ALLOW, saved.single().action) }
+    }
+
+    @Test fun `all and update presets cover the entire section and saved mode is restored`() {
+        val tools =
+            listOf(
+                McpToolIdentity("read", "p", 0, readOnly = true),
+                McpToolIdentity("write", "p", 0, readOnly = false),
+            )
+        assertEquals(setOf("read", "write"), sectionSelection(tools, McpSectionMode.All))
+        assertEquals(setOf("write"), sectionSelection(tools, McpSectionMode.Update))
+        assertEquals(McpSectionMode.Custom, savedSectionMode(tools, emptyMap()))
+        assertEquals(
+            McpSectionMode.View,
+            savedSectionMode(tools, mapOf("read" to McpPolicyAction.ALLOW, "write" to McpPolicyAction.DENY)),
+        )
+    }
+
+    @Test fun `view section preset stages all rules and excludes known mutations`() {
+        val tools =
+            listOf(
+                McpToolIdentity("read", "provider", 0, "Read current state", readOnly = true),
+                McpToolIdentity("k8s_delete", "provider", 0, "Delete a workload", readOnly = true),
+            )
+        var saved = emptyList<ai.rever.boss.mcp.McpSectionPolicyChange>()
+        show(windowSize = IntSize(700, 800)) {
+            McpPolicyManagerDialog(
+                emptyMap(),
+                tools,
+                { true },
+                { _, _ -> McpProactivePolicyOutcome.Saved },
+                {},
+                {},
+                sectionTools = tools,
+                onApplySection = {
+                    saved = it
+                    McpProactivePolicyOutcome.Saved
+                },
+            )
+        }
+        rule.onNodeWithText("View", substring = false).performScrollTo().performClick()
+        rule.runOnIdle { assertTrue(saved.isEmpty()) }
+        captureTheme = "sections-dark"
+        closeIsInsideWindow()
+        rule.onNodeWithText("Confirm section changes").performScrollTo().performClick()
+        rule.runOnIdle {
+            assertEquals(listOf(McpPolicyAction.ALLOW, McpPolicyAction.DENY), saved.map { it.action })
+        }
+        closeIsInsideWindow()
+    }
+
+    @Test fun `long descriptions remain readable without changing a policy`() {
+        val description = "Edit the current document using an AI instruction. ".repeat(6)
+        var writes = 0
+        show {
+            McpPolicyManagerDialog(
+                emptyMap(),
+                listOf(McpToolIdentity("ai_compose", "editor-tab", 0, description)),
+                { true },
+                { _, _ ->
+                    writes++
+                    McpProactivePolicyOutcome.Saved
+                },
+                {},
+                {},
+            )
+        }
+        rule.onNodeWithText(description).performScrollTo().assertExists()
+        closeIsInsideWindow()
+        rule.runOnIdle { assertEquals(0, writes) }
+    }
+
     @Test fun `replacing a candidate invalidates the armed confirmation in light theme`() {
         val candidate = mutableStateOf(McpToolIdentity("tool", "provider", 0))
         var writes = 0
@@ -141,6 +240,8 @@ class McpProactivePolicyDialogTest {
         }
         rule.onNodeWithText("Allow", substring = false).performScrollTo().performClick()
         rule.onNodeWithText("Confirm allow?").assertExists()
+        rule.runOnIdle { assertEquals(0, writes) }
+        closeIsInsideWindow()
         rule.runOnIdle { candidate.value = candidate.value.copy(expectedRevocation = 1) }
         rule.onNodeWithText("Confirm allow?").assertDoesNotExist()
         rule.onNodeWithText("Allow", substring = false).performScrollTo().performClick()
@@ -161,6 +262,7 @@ class McpProactivePolicyDialogTest {
             )
         }
         rule.onNodeWithText("Deny", substring = false).performScrollTo().performClick()
+        rule.onNodeWithText("Save rule").performScrollTo().performClick()
         rule.onNodeWithText("Policy changed.", substring = true).assertExists()
         rule.runOnIdle { assertEquals(1, refreshes) }
         assertTrue(McpProactivePolicyOutcome.Failed("disk").proactivePolicyMessage()!!.contains("storage"))
@@ -178,6 +280,7 @@ class McpProactivePolicyDialogTest {
             )
         }
         rule.onNodeWithText("Deny", substring = false).performScrollTo().performClick()
+        rule.onNodeWithText("Save rule").performScrollTo().performClick()
         rule.onNodeWithText("Policy file unreadable:", substring = true).performScrollTo().assertIsDisplayed()
         assertTrue(McpProactivePolicyOutcome.Denied.proactivePolicyMessage()!!.contains("already denies"))
     }

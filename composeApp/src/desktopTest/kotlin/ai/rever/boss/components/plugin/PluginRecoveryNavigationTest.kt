@@ -1,10 +1,15 @@
 package ai.rever.boss.components.plugin
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.unit.dp
 import org.junit.Rule
 import org.junit.Test
 import kotlin.test.assertEquals
@@ -14,6 +19,40 @@ import kotlin.test.assertTrue
 class PluginRecoveryNavigationTest {
     @get:Rule
     val rule = createComposeRule()
+
+    @Test
+    fun `short recovery card keeps contextual actions and close reachable`() {
+        var dismissed = false
+        var navigated = false
+        rule.setContent {
+            Box(Modifier.size(320.dp, 240.dp)) {
+                PluginHealthCenterCard(
+                    rows = emptyList(),
+                    target = PluginRecoveryTarget("missing-tool", "The selected tool needs recovery. ".repeat(8)),
+                    onOpenToolbox = {
+                        navigated = true
+                        false
+                    },
+                    actionError = null,
+                    workingPluginId = null,
+                    onDismiss = { dismissed = true },
+                    onAction = { _, _ -> },
+                )
+            }
+        }
+        rule
+            .onNodeWithText("Open Toolbox")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .performClick()
+        assertTrue(navigated)
+        rule
+            .onNodeWithText("Close")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .performClick()
+        assertTrue(dismissed)
+    }
 
     @Test
     fun `missing target stays truthful and failed toolbox navigation remains actionable`() {

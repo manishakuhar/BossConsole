@@ -18,7 +18,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.Button
 import androidx.compose.material.ButtonDefaults
 import androidx.compose.material.Card
@@ -160,7 +162,7 @@ private fun observeHealthRows(manager: DynamicPluginManager): List<PluginHealthR
 }
 
 @Composable
-private fun PluginHealthCenterCard(
+internal fun PluginHealthCenterCard(
     rows: List<PluginHealthRow>,
     target: PluginRecoveryTarget?,
     onOpenToolbox: (() -> Boolean)?,
@@ -175,7 +177,7 @@ private fun PluginHealthCenterCard(
         backgroundColor = BossTheme.colors.panel,
         elevation = 8.dp,
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
+        Column(modifier = Modifier.verticalScroll(rememberScrollState()).padding(20.dp)) {
             PluginHealthHeader(actionError)
             PluginRecoveryNavigation(target, rows.isNotEmpty(), workingPluginId != null, onOpenToolbox, onDismiss)
             Spacer(Modifier.height(14.dp))

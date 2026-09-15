@@ -21,6 +21,8 @@ class FocusedTooltipWindowTest {
         var shown = 0
         var hidden = 0
         try {
+            // Other suite tests already registered the startup mode. Each fixture is a new host.
+            resetOverlayFieldForTest("useHeavyweightOverlays")
             OverlayConfig.useHeavyweightPopups = true
             OverlayConfig.heavyweightTooltip = { shown++ }
             OverlayConfig.hideHeavyweightTooltip = { hidden++ }
@@ -48,6 +50,7 @@ class FocusedTooltipWindowTest {
             }
             rule.runOnIdle { assertEquals(2, hidden) }
         } finally {
+            resetOverlayFieldForTest("useHeavyweightOverlays")
             OverlayConfig.useHeavyweightPopups = previousMode
             OverlayConfig.heavyweightTooltip = previousShow
             OverlayConfig.hideHeavyweightTooltip = previousHide

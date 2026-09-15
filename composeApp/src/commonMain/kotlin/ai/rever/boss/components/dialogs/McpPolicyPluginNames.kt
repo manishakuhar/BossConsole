@@ -9,7 +9,8 @@ import androidx.compose.runtime.remember
 
 @Composable
 internal fun mcpPolicyPluginNames(): Map<String, String> {
-    val states by LocalPluginStates.current?.collectAsState() ?: remember { mutableStateOf(emptyMap()) }
+    val flow = LocalPluginStates.current
+    val states = if (flow == null) emptyMap() else flow.collectAsState().value
     return states.mapValues { it.value.manifest.displayName }
 }
 

@@ -403,12 +403,14 @@ private fun McpPolicyManagerStatusItem(persistedPolicyConfig: McpToolPolicyConfi
             onRefreshCandidates = { candidateRefresh++ },
             onDismiss = { showPolicyManager = false },
             sectionTools =
-                mcpProactivePolicyCandidates(
-                    allTools,
-                    emptyMap(),
-                    disabledToolNames,
-                    McpToolRegistryImpl.policyEngine::revocationVersion,
-                ),
+                remember(allTools, persistedPolicyConfig.rules, disabledToolNames, candidateRefresh) {
+                    mcpProactivePolicyCandidates(
+                        allTools,
+                        emptyMap(),
+                        disabledToolNames,
+                        McpToolRegistryImpl.policyEngine::revocationVersion,
+                    )
+                },
             onApplySection = { changes ->
                 withContext(Dispatchers.IO) { McpToolRegistryImpl.policyEngine.setSectionPolicies(changes) }
             },

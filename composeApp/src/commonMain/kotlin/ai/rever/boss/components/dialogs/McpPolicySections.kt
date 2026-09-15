@@ -4,6 +4,7 @@ import ai.rever.boss.mcp.McpMutatingToolCatalog
 import ai.rever.boss.mcp.McpPolicyAction
 import ai.rever.boss.mcp.McpProactivePolicyOutcome
 import ai.rever.boss.mcp.McpSectionPolicyChange
+import ai.rever.boss.mcp.sandbox.McpRiskLevel
 import ai.rever.boss.plugin.ui.BossTheme
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
@@ -42,7 +43,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 
-internal fun McpToolIdentity.isViewTool(): Boolean = readOnly && !McpMutatingToolCatalog.isMutating(toolName)
+internal fun McpToolIdentity.isViewTool(): Boolean =
+    readOnly && !McpMutatingToolCatalog.isMutating(toolName) && policyRisk(this).level < McpRiskLevel.HIGH
 
 internal fun sectionSelection(
     tools: List<McpToolIdentity>,
@@ -53,8 +55,8 @@ internal fun sectionSelection(
             when (mode) {
                 McpSectionMode.All -> true
                 McpSectionMode.View -> it.isViewTool()
-                McpSectionMode.Update -> !it.isViewTool()
-                McpSectionMode.Custom -> false
+                McpSectionMode.Edit -> !it.isViewTool()
+                McpSectionMode.Custom, McpSectionMode.None -> false
             }
         }.map { it.toolName }
         .toSet()
@@ -116,7 +118,7 @@ private fun McpPolicySection(
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionHeader(provider, tools.size, selected.size, !saving) {
                 selected = if (it) tools.map { tool -> tool.toolName }.toSet() else emptySet()
-                mode = if (it) McpSectionMode.All else McpSectionMode.Custom
+                mode = if (it) McpSectionMode.All else McpSectionMode.None
                 dirty = true
             }
             SectionModes(mode, !saving) {
@@ -130,7 +132,7 @@ private fun McpPolicySection(
             }
             if (expanded) {
                 tools.forEach { tool ->
-                    SectionToolRow(tool, tool.toolName in selected, !saving) { checked ->
+                    SectionToolRow(tool, rules[tool.toolName], tool.toolName in selected, !saving) { checked ->
                         selected = if (checked) selected + tool.toolName else selected - tool.toolName
                         mode = McpSectionMode.Custom
                         dirty = true
@@ -160,38 +162,41 @@ private fun SectionModes(
     val colors = BossTheme.colors
     Column(Modifier.selectableGroup()) {
         // Two rows also fit narrow windows without clipping the labels.
-        McpSectionMode.entries.chunked(2).forEach { modes ->
-            Row(Modifier.fillMaxWidth()) {
-                modes.forEach { mode ->
-                    Row(
-                        Modifier
-                            .weight(1f)
-                            .selectable(selected == mode, enabled, Role.RadioButton) { onSelect(mode) }
-                            .padding(vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        RadioButton(
-                            selected == mode,
-                            null,
-                            enabled = enabled,
-                            colors =
-                                RadioButtonDefaults.colors(
-                                    selectedColor = colors.signal,
-                                    unselectedColor = colors.textSecondary,
-                                ),
-                        )
-                        Text(mode.name, fontSize = 13.sp, color = colors.textPrimary)
+        listOf(McpSectionMode.All, McpSectionMode.View, McpSectionMode.Edit, McpSectionMode.Custom)
+            .chunked(2)
+            .forEach { modes ->
+                Row(Modifier.fillMaxWidth()) {
+                    modes.forEach { mode ->
+                        Row(
+                            Modifier
+                                .weight(1f)
+                                .selectable(selected == mode, enabled, Role.RadioButton) { onSelect(mode) }
+                                .padding(vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            RadioButton(
+                                selected == mode,
+                                null,
+                                enabled = enabled,
+                                colors =
+                                    RadioButtonDefaults.colors(
+                                        selectedColor = colors.signal,
+                                        unselectedColor = colors.textSecondary,
+                                    ),
+                            )
+                            Text(mode.name, fontSize = 13.sp, color = colors.textPrimary)
+                        }
                     }
                 }
             }
-        }
     }
 }
 
 @Composable
 private fun SectionToolRow(
     tool: McpToolIdentity,
+    currentRule: McpPolicyAction?,
     selected: Boolean,
     enabled: Boolean,
     onSelect: (Boolean) -> Unit,
@@ -207,8 +212,9 @@ private fun SectionToolRow(
         )
         Column(Modifier.weight(1f).padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(tool.toolName, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
+            Text(savedPolicyLabel(currentRule), fontSize = 12.sp, color = colors.textSecondary)
             Text(
-                if (tool.isViewTool()) "View · read-only" else "Update · changes state or executes actions",
+                if (tool.isViewTool()) "View · read-only" else "Edit · actions or sensitive access",
                 fontSize = 11.sp,
                 color = colors.textSecondary,
             )
@@ -222,67 +228,6 @@ private fun SectionToolRow(
     }
 }
 
-@Composable
-internal fun SectionConfirmation(
-    tools: List<McpToolIdentity>,
-    rules: Map<String, McpPolicyAction>,
-    selected: Set<String>,
-    dirty: Boolean,
-    onApply: suspend (List<McpSectionPolicyChange>) -> McpProactivePolicyOutcome,
-    onRefresh: () -> Unit,
-    onSaving: (Boolean) -> Unit,
-    onDone: () -> Unit,
-    confirmLabel: String = "Confirm section changes",
-) {
-    val colors = BossTheme.colors
-    val scope = rememberCoroutineScope()
-    var saving by remember { mutableStateOf(false) }
-    var feedback by remember { mutableStateOf<String?>(null) }
-    if (dirty) {
-        Text(
-            "Save ${selected.size} Allow and ${tools.size - selected.size} Deny rules. " +
-                "Replaces saved rules for these tools, for all agents and arguments across restarts. " +
-                "Allows may run actions without prompting. Future tools are not included.",
-            color = colors.textSecondary,
-            fontSize = 12.sp,
-        )
-        Button(
-            enabled = !saving,
-            colors =
-                ButtonDefaults.buttonColors(
-                    backgroundColor = colors.signal,
-                    contentColor = colors.onSignal,
-                ),
-            onClick = {
-                val changes =
-                    tools.map {
-                        McpSectionPolicyChange(
-                            it.toolName,
-                            it.providerId,
-                            it.expectedRevocation,
-                            rules[it.toolName],
-                            if (it.toolName in selected) McpPolicyAction.ALLOW else McpPolicyAction.DENY,
-                        )
-                    }
-                saving = true
-                onSaving(true)
-                scope.launch {
-                    try {
-                        val outcome = onApply(changes)
-                        feedback = outcome.proactivePolicyMessage() ?: "Policies saved."
-                        onDone()
-                        onRefresh()
-                    } finally {
-                        saving = false
-                        onSaving(false)
-                    }
-                }
-            },
-        ) { Text(if (saving) "Saving…" else confirmLabel, fontSize = 12.sp) }
-    }
-    feedback?.let { Text(it, color = colors.textSecondary, fontSize = 12.sp) }
-}
-
 internal fun policyToolsHeading(
     sections: List<McpToolIdentity>?,
     available: List<McpToolIdentity>,
@@ -292,7 +237,7 @@ internal fun policyToolsDescription(sections: List<McpToolIdentity>?): String =
     if (sections == null) {
         "Choose Allow or Deny for a tool without a saved rule. Rules follow the tool name."
     } else {
-        "Enable a section or choose All, View, Update, or Custom. Changes require confirmation."
+        "Enable a section or choose All, View, Edit, or Custom. Changes require confirmation."
     }
 
 @Composable

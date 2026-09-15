@@ -112,7 +112,7 @@ fun McpPolicyManagerDialog(
     // row's button, or dismissing, drops any pending confirmation rather than carrying it silently.
     var confirmingDeny by remember { mutableStateOf<String?>(null) }
     var query by remember { mutableStateOf("") }
-    val filteredRules = rules.filterKeys { it.contains(query.trim(), ignoreCase = true) }
+    val filteredRules = filterSavedPolicies(rules, sectionTools, query, mcpPolicyPluginNames(), availableTools)
     val filteredTools =
         availableTools.filter {
             it.matchesPolicyQuery(query)

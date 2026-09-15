@@ -135,6 +135,58 @@ class McpProactivePolicyDialogTest {
         rule.runOnIdle { assertTrue(closed) }
     }
 
+    @Test fun `view excludes risk-classified vault tools even when declared read only`() {
+        val vault = McpToolIdentity("secrets_list", "vault", 0, readOnly = true)
+        val prefixed = vault.copy(toolName = "mcp__boss__secrets_list")
+        assertTrue(!vault.isViewTool())
+        assertTrue(!prefixed.isViewTool())
+        assertEquals(emptySet(), sectionSelection(listOf(vault, prefixed), McpSectionMode.View))
+        assertEquals(
+            McpSectionMode.None,
+            savedSectionMode(listOf(vault), mapOf(vault.toolName to McpPolicyAction.DENY)),
+        )
+    }
+
+    @Test fun `sensitive grants require review and remain retryable after failure`() {
+        val tools = listOf(McpToolIdentity("secrets_list", "vault", 0, "List vault entries", readOnly = true))
+        var writes = 0
+        show(windowSize = IntSize(700, 800)) {
+            McpPolicyManagerDialog(
+                emptyMap(),
+                tools,
+                { true },
+                { _, _ -> McpProactivePolicyOutcome.Saved },
+                {},
+                {},
+                sectionTools = tools,
+                onApplySection = {
+                    writes++
+                    if (writes == 1) McpProactivePolicyOutcome.Failed("disk") else McpProactivePolicyOutcome.Saved
+                },
+            )
+        }
+        rule.onNodeWithContentDescription("All for all sections").performScrollTo().performClick()
+        rule.onNodeWithText("Review sensitive allows").performScrollTo().performClick()
+        rule.runOnIdle { assertEquals(0, writes) }
+        rule.onNodeWithText("secrets_list · HIGH", substring = true).assertExists()
+        captureTheme = "sensitive-dark"
+        closeIsInsideWindow()
+        rule.onNodeWithText("Confirm sensitive allows").performScrollTo().performClick()
+        rule.onNodeWithText("Review sensitive allows").assertExists()
+        rule.onNodeWithText("Could not save", substring = true).assertExists()
+        rule.onNodeWithText("Review sensitive allows").performScrollTo().performClick()
+        rule.onNodeWithText("Confirm sensitive allows").performScrollTo().performClick()
+        rule.runOnIdle { assertEquals(2, writes) }
+    }
+
+    @Test fun `saved policy search matches plugin names and sensitive review includes denials`() {
+        val tool = McpToolIdentity("read", "plugin.id", 0, "Read current state", readOnly = true)
+        val rules = mapOf("read" to McpPolicyAction.DENY)
+        assertEquals(rules, filterSavedPolicies(rules, listOf(tool), "Documents", mapOf("plugin.id" to "Documents")))
+        assertEquals(listOf(tool), sensitiveAllows(listOf(tool), setOf("read"), rules))
+        assertEquals("Saved: Ask before running", savedPolicyLabel(McpPolicyAction.ASK))
+    }
+
     @Test fun `global none includes sections hidden by search and waits for confirmation`() {
         val tools =
             listOf(
@@ -225,7 +277,7 @@ class McpProactivePolicyDialogTest {
                 McpToolIdentity("write", "p", 0, readOnly = false),
             )
         assertEquals(setOf("read", "write"), sectionSelection(tools, McpSectionMode.All))
-        assertEquals(setOf("write"), sectionSelection(tools, McpSectionMode.Update))
+        assertEquals(setOf("write"), sectionSelection(tools, McpSectionMode.Edit))
         assertEquals(McpSectionMode.Custom, savedSectionMode(tools, emptyMap()))
         assertEquals(
             McpSectionMode.View,

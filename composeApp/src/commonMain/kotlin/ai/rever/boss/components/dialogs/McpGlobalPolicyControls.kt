@@ -45,8 +45,8 @@ internal fun McpGlobalPolicyControls(
         listOf(
             "All" to McpSectionMode.All,
             "View" to McpSectionMode.View,
-            "Edit" to McpSectionMode.Update,
-            "None" to McpSectionMode.Custom,
+            "Edit" to McpSectionMode.Edit,
+            "None" to McpSectionMode.None,
         )
     Surface(
         color = colors.textSecondary.copy(alpha = 0.04f),
@@ -57,7 +57,7 @@ internal fun McpGlobalPolicyControls(
             Text("All sections", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
             Text(
                 "Applies to all ${tools.size} tools, including sections hidden by search. " +
-                    "View allows read-only tools; Edit allows tools that change state; None denies all tools.",
+                    "View allows read-only tools; Edit allows actions and sensitive tools; None denies all tools.",
                 fontSize = 12.sp,
                 color = colors.textSecondary,
             )

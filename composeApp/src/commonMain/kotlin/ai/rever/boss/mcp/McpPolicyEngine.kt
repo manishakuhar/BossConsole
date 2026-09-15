@@ -365,7 +365,7 @@ class McpPolicyEngine(
             }
             val outcome =
                 writeConfig(
-                    key = changes.first().providerId,
+                    key = "${changes.size} tools",
                     logKey = "section",
                     updated =
                         _config.value.copy(

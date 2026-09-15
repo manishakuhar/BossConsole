@@ -288,22 +288,12 @@ internal fun BossAppDialogs(state: BossAppState) {
         // to do nothing at all - which is exactly what the pane menu's split did until this
         // existed.
         val place: (TabInfo) -> Unit = { tab ->
-            val split = splitViewState.consumePendingSplit()
-            if (split == null) {
-                val target =
-                    state.newTabDialogRequest.sourcePanelId?.let { splitViewState.findPanel(it)?.tabsComponent }
-                        ?: splitViewState.getActiveTabsComponent()
-                        ?: splitViewState.getLastInteractedTabComponent()
-                        ?: state.tabsComponent
-                target.addTab(tab)
-            } else {
-                splitViewState.splitPanel(
-                    split.panelId,
-                    split.direction.orientation,
-                    tabToMove = tab,
-                    placeBefore = split.direction.placeBefore,
-                )
-            }
+            placeNewTab(
+                splitViewState,
+                tab,
+                state.newTabDialogRequest.sourcePanelId,
+                state.tabsComponent,
+            )
         }
 
         NewTabDialog(

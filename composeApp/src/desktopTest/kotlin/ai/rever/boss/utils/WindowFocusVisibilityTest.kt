@@ -65,7 +65,36 @@ class WindowFocusVisibilityTest {
     @Test
     fun `external URL and final close remain wired to the tested focus and visibility paths`() {
         fun source(path: String) = File(repoRoot(), "composeApp/src/desktopMain/kotlin/ai/rever/boss/$path").readText()
-        assertTrue(source("services/URLHandlerService.kt").contains("WindowFocusManager.bringToFront()"))
+        val urlHandler = source("services/URLHandlerService.kt")
+        val handlerLines =
+            urlHandler
+                .substringAfter("private fun handleURLInternal(", "")
+                .substringBefore("\n    private fun ")
+                .lines()
+                .map(String::trim)
+        val exactRoute =
+            urlHandler
+                .substringAfter("private fun prepareCurrentExternalUrlRoute(", "")
+                .substringBefore("\ninternal class ")
+        if (exactRoute.isNotEmpty()) {
+            // Exact-window routing must reach the tested focusWindow path, not merely mention it.
+            assertTrue("val route = prepareCurrentExternalUrlRoute(url, title)" in handlerLines)
+            assertTrue("route.emit()" in handlerLines)
+            val routeLines = exactRoute.lines().map(String::trim)
+            listOf(
+                "prepareExternalUrlRoute(",
+                "url = url,",
+                "title = title,",
+                "resolveWindowId = WindowFocusManager::resolveActionableWindowId,",
+                "focusWindow = WindowFocusManager::focusWindow,",
+                "openUrl = URLEventBus::openURL,",
+            ).forEach { statement ->
+                assertTrue(statement in routeLines, "Missing external URL route wiring: $statement")
+            }
+        } else {
+            // The main-branch handler still uses the tested compatibility focus path.
+            assertTrue("WindowFocusManager.bringToFront()" in handlerLines)
+        }
         assertTrue(source("window/BossWindow.kt").contains("visible = windowState.isVisible"))
         val retainedClose =
             source("main.kt")

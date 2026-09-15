@@ -93,7 +93,8 @@ internal fun rememberHomeTools(
             isIncompatible = { PluginCrashRegistry.isIncompatible(it) },
         )
 
-    return remember(tabTypes, panels, discoverable, installedPluginIds, access) {
+    val disabledPluginIds = disabledHomePluginIds(pluginStates, installedPluginIds, access)
+    return remember(tabTypes, panels, discoverable, installedPluginIds, disabledPluginIds, access) {
         HomeToolCatalog.build(
             tabTypes = tabTypes,
             panels = panels,
@@ -101,6 +102,7 @@ internal fun rememberHomeTools(
             installedPluginIds = installedPluginIds,
             access = access,
             installedVersionOf = installedVersionOf,
+            disabledPluginIds = disabledPluginIds,
         )
     }
 }

@@ -292,8 +292,13 @@ private fun CardStrip(content: @Composable () -> Unit) {
 
 private fun toolsSubtitle(tools: List<HomeTool>): String {
     val ready = tools.count { it.isReady }
-    val discoverable = tools.size - ready
-    return if (discoverable > 0) "$ready ready, $discoverable more available" else "$ready ready"
+    val disabled = tools.count { it.launch is HomeToolLaunch.Recover }
+    val discoverable = tools.count { it.launch is HomeToolLaunch.Install }
+    return buildList {
+        add("$ready ready")
+        if (disabled > 0) add("$disabled switched off")
+        if (discoverable > 0) add("$discoverable more available")
+    }.joinToString(", ")
 }
 
 /**

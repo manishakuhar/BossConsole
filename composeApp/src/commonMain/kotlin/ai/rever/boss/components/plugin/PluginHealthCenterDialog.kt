@@ -80,6 +80,7 @@ internal fun PluginHealthCenterDialog(
     manager: DynamicPluginManager?,
     delegate: PluginLoaderDelegate?,
     onDismiss: () -> Unit,
+    target: PluginRecoveryTarget? = null,
 ) {
     if (manager == null) {
         BossDialog(onDismissRequest = onDismiss) {
@@ -91,6 +92,7 @@ internal fun PluginHealthCenterDialog(
         return
     }
     val rows = observeHealthRows(manager)
+    val recoveryContext = LocalPluginRecoveryContext.current
     val scope = rememberCoroutineScope()
     val operation = rememberHealthOperation()
 
@@ -104,7 +106,9 @@ internal fun PluginHealthCenterDialog(
             ),
     ) {
         PluginHealthCenterCard(
-            rows = rows,
+            rows = healthRowsForTarget(rows, target),
+            target = target,
+            onOpenToolbox = recoveryContext?.openToolbox,
             actionError = operation.actionError,
             workingPluginId = operation.workingPluginId,
             onDismiss = onDismiss,
@@ -158,6 +162,8 @@ private fun observeHealthRows(manager: DynamicPluginManager): List<PluginHealthR
 @Composable
 private fun PluginHealthCenterCard(
     rows: List<PluginHealthRow>,
+    target: PluginRecoveryTarget?,
+    onOpenToolbox: (() -> Boolean)?,
     actionError: String?,
     workingPluginId: String?,
     onDismiss: () -> Unit,
@@ -171,8 +177,9 @@ private fun PluginHealthCenterCard(
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
             PluginHealthHeader(actionError)
+            PluginRecoveryNavigation(target, rows.isNotEmpty(), workingPluginId != null, onOpenToolbox, onDismiss)
             Spacer(Modifier.height(14.dp))
-            PluginHealthRows(rows, workingPluginId, onAction)
+            if (target == null || rows.isNotEmpty()) PluginHealthRows(rows, workingPluginId, onAction)
             Spacer(Modifier.height(12.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss, enabled = workingPluginId == null) {

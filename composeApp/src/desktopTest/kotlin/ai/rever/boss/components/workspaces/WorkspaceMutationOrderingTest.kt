@@ -54,7 +54,10 @@ class WorkspaceMutationOrderingTest {
             manager.loadWorkspace(edited)
             val save = async(start = CoroutineStart.UNDISPATCHED) { manager.saveWorkspaceAwait(edited) }
             entered.await()
-            val rename = async(start = CoroutineStart.UNDISPATCHED) { manager.renameWorkspaceByIdAwait(initial.id, "Renamed") }
+            val rename =
+                async(start = CoroutineStart.UNDISPATCHED) {
+                    manager.renameWorkspaceByIdAwait(initial.id, "Renamed")
+                }
             runCurrent()
             assertFalse(save.isCompleted)
             assertFalse(rename.isCompleted, "Rename must not overtake the admitted save")
@@ -169,7 +172,9 @@ class WorkspaceMutationOrderingTest {
                 WorkspaceManager(
                     files,
                     backgroundScope,
-                    writeWorkspace = { workspace, name -> if (failWrite) null else files.saveWorkspace(workspace, name) },
+                    writeWorkspace = { workspace, name ->
+                        if (failWrite) null else files.saveWorkspace(workspace, name)
+                    },
                     removeWorkspace = { name -> !failDelete && files.deleteWorkspace(name) },
                 )
             manager.awaitLoaded()
@@ -202,10 +207,16 @@ class WorkspaceMutationOrderingTest {
                     files.saveWorkspace(workspace, name)
                 })
             manager.awaitLoaded()
-            val save = async(start = CoroutineStart.UNDISPATCHED) { manager.saveWorkspaceAwait(initial.copy(description = "accepted")) }
+            val save =
+                async(start = CoroutineStart.UNDISPATCHED) {
+                    manager.saveWorkspaceAwait(initial.copy(description = "accepted"))
+                }
             entered.await()
             save.cancelAndJoin()
-            val rename = async(start = CoroutineStart.UNDISPATCHED) { manager.renameWorkspaceByIdAwait(initial.id, "After") }
+            val rename =
+                async(start = CoroutineStart.UNDISPATCHED) {
+                    manager.renameWorkspaceByIdAwait(initial.id, "After")
+                }
             runCurrent()
             assertFalse(rename.isCompleted)
             release.complete(Unit)
@@ -232,9 +243,15 @@ class WorkspaceMutationOrderingTest {
                     files.saveWorkspace(workspace, name)
                 })
             manager.awaitLoaded()
-            val rename = async(start = CoroutineStart.UNDISPATCHED) { manager.renameWorkspaceByIdAwait(initial.id, "New name") }
+            val rename =
+                async(start = CoroutineStart.UNDISPATCHED) {
+                    manager.renameWorkspaceByIdAwait(initial.id, "New name")
+                }
             entered.await()
-            val save = async(start = CoroutineStart.UNDISPATCHED) { manager.saveWorkspaceAwait(initial.copy(description = "new layout")) }
+            val save =
+                async(start = CoroutineStart.UNDISPATCHED) {
+                    manager.saveWorkspaceAwait(initial.copy(description = "new layout"))
+                }
             release.complete(Unit)
             assertTrue(rename.await().isSuccess)
             val committed = save.await().getOrThrow()

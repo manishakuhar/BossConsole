@@ -117,11 +117,13 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.awt.GraphicsEnvironment
 import java.awt.Window
+import java.lang.ref.WeakReference
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import javax.swing.JFrame
@@ -203,6 +205,10 @@ internal data class ContextMenuTarget(
  * `ShowContextMenuCallback.Params`. Scoped to the target only — the caller fills in the
  * page identity, which is carried through untouched.
  *
+ * Captures the target frame as a [BrowserMenuContext] (an opaque token) inside the returned
+ * info. This allows plugins to route context-menu editor actions precisely to the exact frame
+ * that was clicked, rather than relying on global/focused frame inference that can be stale.
+ *
  * Two deliberate narrowings:
  * - [BrowserContextMenuInfo.hasImage] is only reported together with a resolvable
  *   [BrowserContextMenuInfo.imageUrl]. Chromium reports MEDIA_IMAGE for targets that have
@@ -223,6 +229,7 @@ internal data class ContextMenuTarget(
 internal fun ContextMenuTarget.toContextMenuInfo(
     pageUrl: String,
     pageTitle: String,
+    menuContext: BrowserMenuContext? = null,
 ): BrowserContextMenuInfo {
     // The cap applies to data: only. A signed CDN address can carry a long policy and
     // signature and still be a perfectly usable URL; capping those would silently drop the
@@ -254,8 +261,37 @@ internal fun ContextMenuTarget.toContextMenuInfo(
         imageUrl = source.takeIf { isImage },
         pageUrl = pageUrl,
         pageTitle = pageTitle,
+        menuContext = menuContext,
     )
 }
+
+/** Per-handle authority; navigation or callback replacement revokes previously issued tokens. */
+internal class BrowserMenuContextAuthority {
+    private val generation = AtomicLong()
+
+    fun invalidate() {
+        generation.incrementAndGet()
+    }
+
+    fun snapshot(): Long = generation.get()
+
+    fun capture(
+        frame: Frame?,
+        capturedGeneration: Long = snapshot(),
+    ): BrowserMenuContext = BrowserMenuContextImpl(WeakReference(frame), this, capturedGeneration)
+
+    fun resolve(context: BrowserMenuContext): Frame? {
+        val token = context as? BrowserMenuContextImpl ?: return null
+        val frame = token.frameRef.get()
+        return frame.takeIf { token.owner === this && token.generation == generation.get() }
+    }
+}
+
+private class BrowserMenuContextImpl(
+    val frameRef: WeakReference<Frame>,
+    val owner: BrowserMenuContextAuthority,
+    val generation: Long,
+) : BrowserMenuContext
 
 /**
  * Desktop implementation of [BrowserHandle] that wraps a JxBrowser [Browser] instance.
@@ -368,6 +404,7 @@ internal class BrowserHandleImpl(
     /** Receives committed two-finger swipes from the page. See [BrowserSwipeNavScript]. */
     private val swipeNavBridge = BrowserSwipeNavBridge(onNavigate = ::onSwipeNavigate)
 
+    private val menuContextAuthority = BrowserMenuContextAuthority()
     private val disposed = AtomicBoolean(false)
 
     /**
@@ -1201,6 +1238,8 @@ internal class BrowserHandleImpl(
         // Navigation started - track loading state
         subscriptions +=
             browser.navigation().on(NavigationStarted::class.java) { _ ->
+                // Any frame navigation revokes menu tokens, including same-document transitions.
+                menuContextAuthority.invalidate()
                 _isLoading = true
                 loadingListeners.forEach { listener ->
                     try {
@@ -1470,28 +1509,24 @@ internal class BrowserHandleImpl(
         // Browser closed
         subscriptions +=
             browser.on(BrowserClosed::class.java) {
+                menuContextAuthority.invalidate()
                 logger.debug(LogCategory.BROWSER, "Browser closed", mapOf("handleId" to id))
-                audioSource.close()
-                disposed.set(true)
-                pageInjection.onGone()
-                nativeDisposal.start()
-                // Stop streaming: the underlying page is gone.
-                coBrowseCapturing = false
-                coBrowseSink = null
-                coBrowseBridge.onEvent = null
-                // Same for the page event channel. dispose() clears this too, but a browser can
-                // close without one (a crashed renderer, an engine recycle), and a sink still
-                // pointing at a plugin is the half that matters.
-                pageEventScript = null
-                pageEventBridge.onEvent = null
-                pageEventBridge.urlProvider = { "" }
-                // And drop the injectors HERE, not only in dispose(). This handler sets
-                // disposed = true, and dispose() returns on its first line when that is already
-                // set - so for a browser that closed on its own (crashed renderer, engine recycle)
-                // dispose() never reaches its unregister call, and the entry pins this handle for
-                // the rest of the session. That is the leak the unregister was added to fix,
-                // arriving through the one path that skips it.
-                BrowserInjectDispatcher.unregister(browser)
+                // A browser can close without a dispose() call (a crashed renderer, an engine recycle).
+                // Call dispose() to ensure all scopes are cancelled and the handle is unregistered.
+                // It is idempotent, so a dispose() from the UI will safely no-op.
+                //
+                // Posted to the EDT, like the sibling BrowserClosed handlers (closePopOutWhenBrowserDies,
+                // BrowserPopupWindow): this callback arrives on a JxBrowser thread, and dispose() makes
+                // two bounded 2s EDT round trips (closePopOutOnEdt, exitFullscreen) that must not stall
+                // it - on an engine recycle every browser closes at once and the stalls would serialize.
+                // The browser is already gone here, so the "run before browser.close()" ordering the UI
+                // path needs from the top of dispose() does not apply.
+                //
+                // Telemetry note: dispose() now runs for externally closed browsers too, so
+                // visitTracker.closed() emits PAGE_LEFT + TAB_CLOSED for a crashed renderer or engine
+                // recycle. That is more accurate (the visit really did end), but a plugin counting
+                // TAB_CLOSED sees events it previously did not.
+                SwingUtilities.invokeLater { this@BrowserHandleImpl.dispose() }
             }
     }
 
@@ -1670,6 +1705,11 @@ internal class BrowserHandleImpl(
                 // hurts as much as throwing and a try/catch only covers the latter.
                 val read =
                     try {
+                        // Snapshot before reading native params so concurrent revocation cannot
+                        // grant an old frame a new generation. Missing frames retain an invalid token.
+                        val menuGeneration = menuContextAuthority.snapshot()
+                        val frame = params.frame().orElse(null)
+                        val menuContext = menuContextAuthority.capture(frame, menuGeneration)
                         val target =
                             ContextMenuTarget(
                                 contentTypes = params.contentTypes(),
@@ -1681,8 +1721,9 @@ internal class BrowserHandleImpl(
                             ).toContextMenuInfo(
                                 pageUrl = params.pageUrl(),
                                 pageTitle = lastKnownTitle,
+                                menuContext = menuContext,
                             )
-                        target to params.frame().orElse(null)
+                        target to frame
                     } catch (e: Exception) {
                         logger.debug(
                             LogCategory.BROWSER,
@@ -2767,6 +2808,7 @@ internal class BrowserHandleImpl(
     // ============================================================
 
     override fun setContextMenuCallback(callback: ContextMenuCallback?) {
+        menuContextAuthority.invalidate()
         contextMenuCallback = callback
     }
 
@@ -3329,13 +3371,16 @@ internal class BrowserHandleImpl(
      */
 
     /**
-     * Closes the pop-out when the browser behind it dies without a dispose().
+     * Closes the pop-out when the browser behind it dies.
      *
-     * `BrowserClosed` sets `disposed = true`, and `dispose()` returns on its first line when that
-     * is already set - so a crashed renderer or an engine recycle never reaches the cleanup.
      * The tab is backgrounded by definition while popped out, so nothing tears its composition
-     * down either: without this the window stays on screen, undecorated and always-on-top, over
-     * a dead surface. `showPopupInWindow` subscribes to the same event for the same reason.
+     * down: without this the window stays on screen, undecorated and always-on-top, over a dead
+     * surface. `showPopupInWindow` subscribes to the same event for the same reason.
+     *
+     * The unified BrowserClosed handler reaches the pop-out too, through dispose()'s
+     * closePopOutOnEdt() - but this direct EDT post is the fast path, and keeping it means the
+     * surface closes even if dispose() is delayed behind other EDT work. closeSurfacePopOut
+     * no-ops once the frame is gone, so the two cannot conflict.
      */
     private fun closePopOutWhenBrowserDies() {
         runCatching {
@@ -3587,16 +3632,32 @@ internal class BrowserHandleImpl(
         editorCommand(EditorCommand.copy())
     }
 
+    override fun copySelection(menuContext: BrowserMenuContext?) {
+        editorCommand(EditorCommand.copy(), menuContext)
+    }
+
     override fun paste() {
         editorCommand(EditorCommand.paste())
+    }
+
+    override fun paste(menuContext: BrowserMenuContext?) {
+        editorCommand(EditorCommand.paste(), menuContext)
     }
 
     override fun cut() {
         editorCommand(EditorCommand.cut())
     }
 
+    override fun cut(menuContext: BrowserMenuContext?) {
+        editorCommand(EditorCommand.cut(), menuContext)
+    }
+
     override fun selectAll() {
         editorCommand(EditorCommand.selectAll())
+    }
+
+    override fun selectAll(menuContext: BrowserMenuContext?) {
+        editorCommand(EditorCommand.selectAll(), menuContext)
     }
 
     /**
@@ -3621,28 +3682,15 @@ internal class BrowserHandleImpl(
      * that framework-managed inputs listen for; the old paste bypassed them, so a React or Vue
      * field could show text its own state never learned about.
      *
-     * **On the frame choice, and a comment in this package that says the opposite.**
-     * [Browser.focusedFrame] first, `mainFrame()` only as a fallback: the caret is what an editor
-     * command acts on, and it routinely sits in a subframe. `PopupWindowContextMenu` reaches the
-     * other conclusion for its own menu ("browser.focusedFrame() would answer for the wrong frame
-     * inside an iframe") and it is right there: a right-click has a frame Chromium already
-     * resolved for that exact click, `params.frame()`, which beats any inference. These are not
-     * in conflict so much as differently supplied — that callback has the accurate frame in hand
-     * and this method does not.
+     * **On the frame choice.**
+     * The caret is what an editor command acts on, and it routinely sits in a subframe (like an
+     * OAuth or payment form). When a [menuContext] is supplied (e.g. from a context-menu flow),
+     * the command exclusively targets the frame associated with that menu. This guarantees it
+     * targets the exact right-click location, without falling back to `focusedFrame()` even if
+     * focus has changed or the menu frame is no longer available.
      *
-     * What that costs, stated plainly: for a caller reaching `copySelection()` on a non-editable
-     * selection while an iframe holds keyboard focus, `focusedFrame()` is the iframe and the
-     * command acts on its empty selection. `mainFrame()` would have been right there. That case
-     * is not reachable through the browser plugin's menu today — its non-editable branch copies
-     * the reported selection through AWT and never calls this, and the editable branch is gated
-     * on `isEditable`, which `toContextMenuInfo` computes for the main frame only, so a
-     * right-click that reaches here has focused a main-frame editable element. It is reachable by
-     * any other plugin holding a [BrowserHandle].
-     *
-     * The durable answer is to prefer the frame the context-menu callback already resolved
-     * (`BrowserHandleImpl` line ~1232 keeps `params.frame()`), held weakly and only while its
-     * menu is live, with `focusedFrame()` then `mainFrame()` behind it. Not done here: it changes
-     * the shape of the handle for a case nothing currently hits.
+     * When [menuContext] is absent (e.g. from an explicit plugin call or keyboard shortcut),
+     * [Browser.focusedFrame] is the best answer, with `mainFrame()` as a final fallback.
      *
      * Never throws: this runs from context-menu handlers on a JxBrowser callback thread, where
      * an escaping exception has no owner. A refusal is logged rather than returned, because
@@ -3650,17 +3698,17 @@ internal class BrowserHandleImpl(
      * release for a signal only this log needs.
      */
     @Suppress("TooGenericExceptionCaught") // Matches PopupWindowContextMenu: Error must propagate.
-    private fun editorCommand(command: EditorCommand): Boolean {
+    private fun editorCommand(command: EditorCommand, menuContext: BrowserMenuContext? = null): Boolean {
         if (!isValid) return false
-        // The command's own identity, not a hand-passed label: a second parameter would let
-        // editorCommand(EditorCommand.paste(), "Copy") compile and mislabel every log line it
-        // produced.
         val what = command.name().name
+
         val accepted =
             try {
                 executeEditorCommand(
-                    focusedFrame = browser.focusedFrame().orElse(null),
-                    mainFrame = browser.mainFrame().orElse(null),
+                    menuContext = menuContext,
+                    focusedFrame = if (menuContext == null) browser.focusedFrame().orElse(null) else null,
+                    mainFrame = if (menuContext == null) browser.mainFrame().orElse(null) else null,
+                    authority = menuContextAuthority,
                     command = command,
                 )
             } catch (e: Exception) {
@@ -4190,6 +4238,7 @@ internal class BrowserHandleImpl(
     }
 
     override fun dispose() {
+        menuContextAuthority.invalidate()
         audioSource.close()
         // Synchronously, and before the guard below: invokeLater would let browser.close() run
         // first, and closing the browser under a still-attached Swing view is exactly the
@@ -4279,8 +4328,10 @@ internal class BrowserHandleImpl(
             coBrowseInjectRegistered.set(true)
             pageEventInjectRegistered.set(true)
 
-            // Unsubscribe from all events
-            subscriptions.forEach { it.unsubscribe() }
+            // Unsubscribe from all events. runCatching, as in the BrowserPopupWindow handler: a
+            // browser that closed on its own reaches dispose() with the native side already gone,
+            // and a dead-transport throw here must not abort the teardown.
+            subscriptions.forEach { runCatching { it.unsubscribe() } }
             subscriptions.clear()
 
             // Clear listeners
@@ -4293,12 +4344,14 @@ internal class BrowserHandleImpl(
             // Release find-in-page state and its timers before closing the browser: a debounce that
             // fires afterwards would search a closed object.
             BrowserFindController.dispose(browser)
-
+        } finally {
             // Unconditional, unlike the composition's token-guarded removal: the handle is gone, so
             // there is no successor registration this could delete. Covers a handle disposed out from
             // under a surface that is still composed - an engine generation bump does exactly that.
+            // In the finally, not the try: a throw anywhere above (a dead-transport unsubscribe,
+            // for instance) must not skip the unregister - pinning the handle for the session is the
+            // leak the BrowserClosed routing above exists to close.
             ActiveBrowserRegistry.unregister(id)
-        } finally {
             // Do not turn a caller deadline into permission to close a live native call.
             // This also covers direct plugin/window disposal and local teardown failures.
             finishLocalBrowserDisposal(
@@ -4537,17 +4590,25 @@ internal fun shouldRetainSurface(mode: com.teamdev.jxbrowser.engine.RenderingMod
  * iframe copied and pasted nothing. [focusedFrame] is where the caret is; [mainFrame] is the
  * fallback for the case Chromium reports no focused frame at all.
  *
- * Pure and separate from [BrowserHandleImpl] so that choice is pinned by a test instead of
- * needing a live engine to observe. Exception containment stays at the call site, which owns
- * the logger.
+ * Explicit menu tokens must belong to this authority and its current generation; invalid
+ * tokens never fall back to focus. Native frame closure is checked by Frame.execute, and
+ * its exception is contained by the caller. Navigation racing an already admitted native
+ * command remains subject to JxBrowser frame lifetime; this is not a document-atomic RPC.
  */
 internal fun executeEditorCommand(
+    menuContext: BrowserMenuContext?,
     focusedFrame: Frame?,
     mainFrame: Frame?,
     command: EditorCommand,
+    authority: BrowserMenuContextAuthority,
 ): Boolean {
-    val frame = focusedFrame ?: mainFrame ?: return false
-    return frame.execute(command)
+    val frame =
+        if (menuContext != null) {
+            authority.resolve(menuContext)
+        } else {
+            focusedFrame ?: mainFrame
+        }
+    return frame?.execute(command) ?: false
 }
 
 /**

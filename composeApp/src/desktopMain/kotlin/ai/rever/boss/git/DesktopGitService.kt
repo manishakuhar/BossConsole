@@ -2224,6 +2224,15 @@ actual object GitService {
         }
 
     /**
+     * The DEBUG line [cloneRepository] logs for one line of git output. git's stderr is merged in,
+     * and it can carry the credential from a clone URL: git older than 2.22 can print it in `fatal:`
+     * messages, `GIT_TRACE` inherited from the environment echoes the command line, and a server's
+     * own text is printed verbatim. Only the userinfo is removed, so the failure text, host and
+     * port stay readable.
+     */
+    internal fun cloneProgressLogMessage(line: String) = "Clone progress: ${LogSanitizer.redactUrlUserInfo(line)}"
+
+    /**
      * Clone a Git repository to the specified directory.
      * Executes git clone with progress output and streams updates via callback.
      * Includes a 10-minute timeout to prevent indefinite hangs.
@@ -2358,7 +2367,7 @@ actual object GitService {
                                     onProgress("Checking out files...")
                                 }
                             }
-                            logger.debug(LogCategory.GENERAL, "Clone progress: $progressLine")
+                            logger.debug(LogCategory.GENERAL, cloneProgressLogMessage(progressLine))
                         },
                         onCancellation = {
                             val deletionResult =

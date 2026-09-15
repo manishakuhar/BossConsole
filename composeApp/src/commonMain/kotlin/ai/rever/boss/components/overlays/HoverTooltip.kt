@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -84,7 +85,10 @@ fun HoverTooltipBox(
         showTooltip = isHovered || focused
     }
 
-    if (showTooltip) {
+    // Keyboard focus may remain on this node after its window loses application focus.
+    // Never leave its always-on-top native tooltip floating above another application.
+    val windowFocused = LocalWindowInfo.current.isWindowFocused
+    if (showTooltip && (!focused || windowFocused)) {
         val heavyweightTooltip = OverlayConfig.heavyweightTooltip
         if (OverlayConfig.useHeavyweightPopups && heavyweightTooltip != null) {
             DisposableEffect(text) {

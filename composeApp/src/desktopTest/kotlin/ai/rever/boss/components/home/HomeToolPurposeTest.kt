@@ -8,9 +8,12 @@ import ai.rever.boss.plugin.repository.PluginSearchFilter
 import ai.rever.boss.plugin.repository.PluginSearchResult
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.WindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
@@ -57,15 +60,28 @@ class HomeToolPurposeTest {
     @Test fun keyboardFocusExplainsPurposeAndEnterStillActivatesExactlyOnce() {
         var clicks = 0
         rule.setContent {
-            Row(Modifier.width(300.dp)) {
-                HomeToolCard(tool(), HomeToolState.INSTALLABLE, null, { clicks++ }, Modifier.weight(1f).testTag("tool"))
-                HomeToolCard(
-                    tool().copy(id = "other", label = "Other", description = ""),
-                    HomeToolState.READY,
-                    null,
-                    {},
-                    Modifier.weight(1f).testTag("other"),
-                )
+            CompositionLocalProvider(
+                LocalWindowInfo provides
+                    object : WindowInfo {
+                        override val isWindowFocused = true
+                    },
+            ) {
+                Row(Modifier.width(300.dp)) {
+                    HomeToolCard(
+                        tool(),
+                        HomeToolState.INSTALLABLE,
+                        null,
+                        { clicks++ },
+                        Modifier.weight(1f).testTag("tool"),
+                    )
+                    HomeToolCard(
+                        tool().copy(id = "other", label = "Other", description = ""),
+                        HomeToolState.READY,
+                        null,
+                        {},
+                        Modifier.weight(1f).testTag("other"),
+                    )
+                }
             }
         }
         rule.onNodeWithText(purpose).assertDoesNotExist()

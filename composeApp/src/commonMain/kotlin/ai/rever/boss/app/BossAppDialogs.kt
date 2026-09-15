@@ -73,6 +73,7 @@ import ai.rever.boss.search.ToolSearchRecord
 import ai.rever.boss.search.rememberSpotlightFileIndexer
 import ai.rever.boss.services.auth.UserDataStorage
 import ai.rever.boss.services.bookmarks.BookmarkAPIAccess
+import ai.rever.boss.services.terminal.TerminalAPIAccess
 import ai.rever.boss.settings.MICROKERNEL_MODE_CONFIRMATION_MESSAGE
 import ai.rever.boss.settings.MicrokernelModePreference
 import ai.rever.boss.terminal.TerminalLinkSettingsManager
@@ -90,6 +91,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -1151,6 +1153,22 @@ internal fun BossAppDialogs(state: BossAppState) {
                 state.focusRequester.requestFocus()
                 logger.info(LogCategory.SYSTEM, "Plugin wizard completed")
             },
+            onSetupBossTerm = {
+                if (TerminalAPIAccess.getProvider() == null) {
+                    StatusMessageManager.showMessage(
+                        "BOSS Term setup is unavailable. Update or reload Terminal Tab, then try again.",
+                    )
+                    logger.warn(LogCategory.SYSTEM, "BOSS Term setup requested without a Terminal Tab provider")
+                } else {
+                    coroutineScope.launch(Dispatchers.IO) {
+                        UserDataStorage.setPluginWizardCompleted(true)
+                    }
+                    state.showPluginInstallWizard = false
+                    state.terminalOnboardingOwnerStarted = true
+                    state.terminalOnboardingRequestGeneration++
+                    logger.info(LogCategory.SYSTEM, "Plugin wizard completed; opening BOSS Term setup")
+                }
+            },
             onInstallPlugins = { plugins, onProgress ->
                 when {
                     dynamicPluginManager != null -> {
@@ -1175,6 +1193,24 @@ internal fun BossAppDialogs(state: BossAppState) {
                     }
                 }
             },
+        )
+    }
+
+    if (state.terminalOnboardingOwnerStarted) {
+        val requestGeneration = state.terminalOnboardingRequestGeneration
+        val finishTerminalOnboarding: () -> Unit =
+            remember(requestGeneration) {
+                {
+                    state.terminalOnboardingOwnerStarted = false
+                    state.focusRequester.requestFocus()
+                }
+            }
+        // Terminal Tab observes this memoized callback identity as the explicit foreground
+        // generation. Its process-wide renderer ownership guard keeps another host window from
+        // mounting the same setup PTY.
+        TerminalAPIAccess.TerminalOnboardingWizard(
+            onDismiss = finishTerminalOnboarding,
+            onComplete = finishTerminalOnboarding,
         )
     }
 

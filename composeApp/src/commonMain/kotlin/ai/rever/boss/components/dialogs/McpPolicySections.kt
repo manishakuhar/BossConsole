@@ -67,9 +67,11 @@ internal fun McpPolicySections(
     onApply: suspend (List<McpSectionPolicyChange>) -> McpProactivePolicyOutcome,
     onRefresh: () -> Unit,
 ) {
+    val pluginNames = mcpPolicyPluginNames()
     val groups =
         tools.groupBy { it.providerId }.filter { (provider, members) ->
-            provider.contains(query.trim(), true) ||
+            policySectionName(provider, pluginNames).contains(query.trim(), true) ||
+                provider.contains(query.trim(), true) ||
                 members.any {
                     it.toolName.contains(query.trim(), true) || it.description.contains(query.trim(), true)
                 }
@@ -81,8 +83,11 @@ internal fun McpPolicySections(
             color = BossTheme.colors.textSecondary,
             fontSize = 12.sp,
         )
+        McpGlobalPolicyControls(tools, rules, onApply, onRefresh)
         groups.forEach { (provider, members) ->
-            key(provider) { McpPolicySection(provider, members, rules, onApply, onRefresh) }
+            key(provider) {
+                McpPolicySection(policySectionName(provider, pluginNames), members, rules, onApply, onRefresh)
+            }
         }
         if (groups.isEmpty()) Text("No matching sections.", color = BossTheme.colors.textSecondary)
     }
@@ -218,7 +223,7 @@ private fun SectionToolRow(
 }
 
 @Composable
-private fun SectionConfirmation(
+internal fun SectionConfirmation(
     tools: List<McpToolIdentity>,
     rules: Map<String, McpPolicyAction>,
     selected: Set<String>,
@@ -227,6 +232,7 @@ private fun SectionConfirmation(
     onRefresh: () -> Unit,
     onSaving: (Boolean) -> Unit,
     onDone: () -> Unit,
+    confirmLabel: String = "Confirm section changes",
 ) {
     val colors = BossTheme.colors
     val scope = rememberCoroutineScope()
@@ -263,7 +269,7 @@ private fun SectionConfirmation(
                 scope.launch {
                     try {
                         val outcome = onApply(changes)
-                        feedback = outcome.proactivePolicyMessage() ?: "Section saved."
+                        feedback = outcome.proactivePolicyMessage() ?: "Policies saved."
                         onDone()
                         onRefresh()
                     } finally {
@@ -272,7 +278,7 @@ private fun SectionConfirmation(
                     }
                 }
             },
-        ) { Text(if (saving) "Saving…" else "Confirm section changes", fontSize = 12.sp) }
+        ) { Text(if (saving) "Saving…" else confirmLabel, fontSize = 12.sp) }
     }
     feedback?.let { Text(it, color = colors.textSecondary, fontSize = 12.sp) }
 }

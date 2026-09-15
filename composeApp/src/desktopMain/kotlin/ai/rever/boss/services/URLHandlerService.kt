@@ -98,7 +98,11 @@ actual object URLHandlerService {
      */
     actual fun handleURL(url: String) {
         if (!isAppReady) {
-            logger.debug(LogCategory.BROWSER, "App not ready, queueing URL", mapOf("url" to url))
+            logger.debug(
+                LogCategory.BROWSER,
+                "App not ready, queueing URL",
+                mapOf("url" to LogSanitizer.maskUriParams(url)),
+            )
             urlQueue.add(url)
             return
         }
@@ -136,7 +140,8 @@ actual object URLHandlerService {
             val title = extractDomain(url) ?: "Loading..."
             val route = prepareCurrentExternalUrlRoute(url, title)
             if (route == null) {
-                logger.warn(LogCategory.BROWSER, "No usable window registered, cannot open URL", mapOf("url" to url))
+                val logData = mapOf("url" to LogSanitizer.maskUriParams(url))
+                logger.warn(LogCategory.BROWSER, "No usable window registered, cannot open URL", logData)
                 return
             }
             logger.debug(LogCategory.BROWSER, "Prepared URL target window", mapOf("windowId" to route.targetWindowId))
@@ -288,7 +293,7 @@ actual object URLHandlerService {
         logger.debug(
             LogCategory.BROWSER,
             "Emitted URL open event",
-            mapOf("url" to url, "windowId" to targetWindowId),
+            mapOf("url" to LogSanitizer.maskUriParams(url), "windowId" to targetWindowId),
         )
     }
 }
@@ -312,7 +317,7 @@ internal class ExternalUrlRoute(
     suspend fun emit() = emitUrl()
 }
 
-/** Prepares an external URL event only after focusing its exact target window. */
+/** Prepares an external URL event only after the focus request for its exact target window is accepted. */
 internal fun prepareExternalUrlRoute(
     url: String,
     title: String,

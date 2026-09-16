@@ -248,6 +248,20 @@ fun BossTabsComponent.rememberTabMenuState(
             val problem = bookmarkSaveProblem(tabConfig)
             val available = library != null && libraryState?.ready == true
             val isFavorite = existingBookmark?.id in libraryState?.favoriteBookmarkIds.orEmpty()
+            if (available && problem == null) {
+                add(
+                    ContextMenuItem(
+                        if (existingBookmark == null) "Save Bookmark…" else "Bookmark saved",
+                        enabled = existingBookmark == null,
+                        onClick = {
+                            bookmarkToEdit = null
+                            tabToBookmark = config
+                            preferFavorite = false
+                            showBookmarkDialog = true
+                        },
+                    ),
+                )
+            }
             add(
                 ContextMenuItem(
                     when {

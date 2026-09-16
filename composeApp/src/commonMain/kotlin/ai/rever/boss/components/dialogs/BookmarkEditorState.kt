@@ -45,6 +45,7 @@ internal class BookmarkEditorState(
     var creatingCollection by mutableStateOf(false)
     var collectionName by mutableStateOf("")
     private val workspaceName = existing?.workspaceName.orEmpty()
+    private val addingToFavorites = preferFavorite == true && existing == null
 
     val edited: TabConfig get() =
         config.copy(
@@ -135,7 +136,7 @@ internal class BookmarkEditorState(
             target = saved.tabConfig.url ?: saved.tabConfig.filePath ?: saved.tabConfig.workingDirectory.orEmpty()
             command = saved.tabConfig.initialCommand.orEmpty()
             collectionId = owner.id
-            favorite = saved.id in snapshot.favoriteBookmarkIds
+            favorite = addingToFavorites || saved.id in snapshot.favoriteBookmarkIds
             revision = snapshot.revision
             error = null
             duplicateId = null

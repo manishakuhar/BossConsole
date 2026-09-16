@@ -109,21 +109,31 @@ internal fun BookmarkEditorDialog(
                     BookmarkEditorMessages(form, library, save)
                 }
                 Spacer(Modifier.height(12.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(enabled = !form.busy, onClick = onDismiss) { Text("Cancel") }
-                    Button(enabled = form.canSave, onClick = { save(false) }) {
-                        Text(
-                            if (form.busy) {
-                                "Saving…"
-                            } else if (addingFavorite) {
-                                "Add"
-                            } else {
-                                "Save"
-                            },
-                        )
-                    }
-                }
+                BookmarkEditorActions(form, addingFavorite, save, onDismiss)
             }
+        }
+    }
+}
+
+@Composable
+private fun BookmarkEditorActions(
+    form: BookmarkEditorState,
+    addingFavorite: Boolean,
+    save: (Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        TextButton(enabled = !form.busy, onClick = onDismiss) { Text("Cancel") }
+        Button(enabled = form.canSave, onClick = { save(false) }) {
+            Text(
+                if (form.busy) {
+                    "Saving…"
+                } else if (addingFavorite) {
+                    "Add"
+                } else {
+                    "Save"
+                },
+            )
         }
     }
 }

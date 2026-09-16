@@ -2,6 +2,7 @@ package ai.rever.boss.components.dialogs
 
 import ai.rever.boss.plugin.bookmark.Bookmark
 import ai.rever.boss.plugin.bookmark.BookmarkLibraryProvider
+import ai.rever.boss.plugin.bookmark.BookmarkLibraryState
 import ai.rever.boss.plugin.bookmark.BookmarkMutationResult
 import ai.rever.boss.plugin.bookmark.BookmarkSaveRequest
 import ai.rever.boss.plugin.workspace.TabConfig
@@ -28,10 +29,7 @@ internal class BookmarkEditorState(
         provider.state.value.collections
             .find { c -> c.bookmarks.any { it.id == existing?.id } }
             ?.id
-            ?: provider.state.value.collections
-                .firstOrNull()
-                ?.id
-                .orEmpty(),
+            ?: provider.state.value.initialFolderId(),
     )
     var favorite by mutableStateOf(
         existing?.let { it.id in provider.state.value.favoriteBookmarkIds }
@@ -70,11 +68,7 @@ internal class BookmarkEditorState(
 
     fun initializeLoadedLibrary() {
         if (collectionId.isBlank() && provider.state.value.ready) {
-            collectionId =
-                provider.state.value.collections
-                    .firstOrNull()
-                    ?.id
-                    .orEmpty()
+            collectionId = provider.state.value.initialFolderId()
             revision = provider.state.value.revision
         }
     }
@@ -177,3 +171,6 @@ internal suspend fun bookmarkProviderCall(
         onError("Could not update bookmarks. Your changes are still here; try again.")
     }
 }
+
+private fun BookmarkLibraryState.initialFolderId(): String =
+    (collections.firstOrNull { it.id in unfiledCollectionIds } ?: collections.firstOrNull())?.id.orEmpty()

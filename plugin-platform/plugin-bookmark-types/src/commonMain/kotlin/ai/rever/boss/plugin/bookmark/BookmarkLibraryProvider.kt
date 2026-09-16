@@ -58,6 +58,8 @@ data class BookmarkLibraryState(
     val error: String? = null,
     val revision: Long = 0,
     val defaultFavorite: Boolean = true,
+    /** Storage containers shown as root bookmarks rather than user-created folders. */
+    val unfiledCollectionIds: Set<String> = emptySet(),
 )
 
 data class BookmarkSaveRequest(

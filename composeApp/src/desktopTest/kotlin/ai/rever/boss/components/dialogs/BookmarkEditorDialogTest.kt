@@ -213,6 +213,45 @@ class BookmarkEditorDialogTest {
         assertFalse(provider.saved.last().favorite)
     }
 
+    @Test fun `adding existing plain bookmark to favorites preserves intent after duplicate edit`() {
+        prepareDuplicate(favorite = false)
+        showEditor(preferFavorite = true)
+        rule.onNodeWithText("Add", substring = false).performClick()
+        rule.onNodeWithText("Edit existing bookmark").performScrollTo().performClick()
+        rule.onNodeWithText("Edit Bookmark").assertIsDisplayed()
+        provider.saveResult = BookmarkMutationResult(true, bookmarkId = "duplicate")
+        rule.onNodeWithText("Save", substring = false).performClick()
+        rule.waitForIdle()
+        assertEquals("duplicate", provider.saved.last().bookmarkId)
+        assertEquals(true, provider.saved.last().favorite)
+        assertEquals("duplicate", savedId)
+        assertEquals(1, dismissed)
+    }
+
+    @Test fun `plain save duplicate edit preserves existing favorite membership`() {
+        prepareDuplicate(favorite = true)
+        showEditor(preferFavorite = false)
+        rule.onNodeWithText("Save", substring = false).performClick()
+        rule.onNodeWithText("Edit existing bookmark").performScrollTo().performClick()
+        provider.saveResult = BookmarkMutationResult(true, bookmarkId = "duplicate")
+        rule.onNodeWithText("Save", substring = false).performClick()
+        rule.waitForIdle()
+        assertEquals(true, provider.saved.last().favorite)
+        assertEquals("duplicate", provider.saved.last().bookmarkId)
+        assertEquals("duplicate", savedId)
+    }
+
+    private fun prepareDuplicate(favorite: Boolean) {
+        val bookmark = Bookmark(id = "duplicate", workspaceName = "Work", tabConfig = config)
+        provider.state.value =
+            provider.state.value.copy(
+                collections = listOf(BookmarkCollection(id = "saved", name = "Saved", bookmarks = listOf(bookmark))),
+                favoriteBookmarkIds = if (favorite) setOf(bookmark.id) else emptySet(),
+            )
+        provider.saveResult =
+            BookmarkMutationResult(false, duplicateBookmarkId = bookmark.id, message = "Already saved")
+    }
+
     @Test fun `collection creation failure retains input and can be cancelled`() {
         provider.failCollection = true
         showEditor()
@@ -228,7 +267,8 @@ class BookmarkEditorDialogTest {
         assertEquals(0, dismissed)
     }
 
-    @Test fun `delete offers Undo and restores through returned token`() {
+    @Test fun `delete uses confirmed revision while Undo uses latest revision`() {
+        provider.state.value = provider.state.value.copy(revision = 5)
         val bookmark = Bookmark(id = "delete-me", tabConfig = config, workspaceName = "Work")
         rule.setContent {
             CompositionLocalProvider(LocalHeavyweightOverlays provides true) {
@@ -237,14 +277,18 @@ class BookmarkEditorDialogTest {
         }
         rule.mainClock.advanceTimeBy(500)
         rule.waitForIdle()
+        provider.state.value = provider.state.value.copy(revision = 6)
         rule.onNodeWithText("Delete bookmark", substring = false).performClick()
         rule.waitForIdle()
         rule.onNodeWithText("Bookmark deleted").assertIsDisplayed()
         assertEquals(listOf("delete-me"), provider.deleted)
+        assertEquals(listOf(5L), provider.deleteRevisions)
         assertEquals(0, dismissed)
+        provider.state.value = provider.state.value.copy(revision = 7)
         rule.onNodeWithText("Undo", substring = false).performClick()
         rule.waitForIdle()
         assertEquals(listOf("undo"), provider.undone)
+        assertEquals(listOf(7L), provider.undoRevisions)
         assertEquals(1, dismissed)
     }
 
@@ -271,6 +315,8 @@ class BookmarkEditorDialogTest {
         var failCollection = false
         val saved = mutableListOf<BookmarkSaveRequest>()
         val deleted = mutableListOf<String>()
+        val deleteRevisions = mutableListOf<Long>()
+        val undoRevisions = mutableListOf<Long>()
         val undone = mutableListOf<String>()
 
         override suspend fun saveBookmark(request: BookmarkSaveRequest): BookmarkMutationResult {
@@ -303,6 +349,7 @@ class BookmarkEditorDialogTest {
             expectedRevision: Long,
         ): BookmarkMutationResult {
             deleted += bookmarkId
+            deleteRevisions += expectedRevision
             return BookmarkMutationResult(true, undoToken = "undo")
         }
 
@@ -311,6 +358,7 @@ class BookmarkEditorDialogTest {
             expectedRevision: Long,
         ): BookmarkMutationResult {
             undone += token
+            undoRevisions += expectedRevision
             return BookmarkMutationResult(true)
         }
 

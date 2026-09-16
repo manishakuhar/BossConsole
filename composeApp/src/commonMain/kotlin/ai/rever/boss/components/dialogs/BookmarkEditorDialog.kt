@@ -8,7 +8,6 @@ import ai.rever.boss.plugin.ui.BossDialog
 import ai.rever.boss.plugin.ui.BossTheme
 import ai.rever.boss.plugin.workspace.TabConfig
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,14 +20,17 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.Button
+import androidx.compose.material.ButtonDefaults
 import androidx.compose.material.Checkbox
-import androidx.compose.material.DropdownMenu
-import androidx.compose.material.DropdownMenuItem
+import androidx.compose.material.Icon
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.OutlinedTextField
 import androidx.compose.material.Surface
 import androidx.compose.material.Text
 import androidx.compose.material.TextButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -48,6 +50,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 
 /** One save/edit flow shared by tab menus and the sidebar. Saving never opens the target. */
@@ -98,7 +101,10 @@ internal fun BookmarkEditorDialog(
             ) {
                 Text(form.dialogTitle, style = MaterialTheme.typography.h6)
                 Spacer(Modifier.height(12.dp))
-                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                Column(
+                    Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
                     if (creatingBookmark) {
                         BookmarkQuickFields(form, config.type, library)
                     } else {
@@ -145,24 +151,34 @@ private fun BookmarkQuickFields(
 ) {
     var expanded by remember { mutableStateOf(false) }
     BookmarkNameField(form)
-    Text(
-        bookmarkTypeDescription(type) + " · " + form.target.ifBlank { "Default startup folder" },
-        style = MaterialTheme.typography.caption,
-        color = BossTheme.colors.textSecondary,
-        maxLines = 2,
-        overflow = TextOverflow.Ellipsis,
-    )
-    if (type == "terminal" && form.command.isNotBlank()) {
+    if (!expanded) {
         Text(
-            "Startup command: " + form.command,
-            style = MaterialTheme.typography.caption,
+            bookmarkTypeDescription(type) + " · " + form.target.ifBlank { "Default startup folder" },
+            style = MaterialTheme.typography.caption.copy(lineHeight = 18.sp),
             color = BossTheme.colors.textSecondary,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
+        if (type == "terminal" && form.command.isNotBlank()) {
+            Text(
+                "Startup command: " + form.command,
+                style = MaterialTheme.typography.caption.copy(lineHeight = 18.sp),
+                color = BossTheme.colors.textSecondary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
-    TextButton(enabled = !form.busy, onClick = { expanded = !expanded }) {
-        Text(if (expanded) "Fewer options" else "More options")
+    TextButton(
+        enabled = !form.busy,
+        onClick = { expanded = !expanded },
+        colors = ButtonDefaults.textButtonColors(contentColor = BossTheme.colors.textSecondary),
+    ) {
+        Text(if (expanded) "Hide options" else "More options")
+        Icon(
+            if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+            contentDescription = null,
+        )
     }
     if (expanded) {
         BookmarkTargetFields(form, type, includeName = false)
@@ -188,7 +204,6 @@ private fun BookmarkTargetFields(
     type: String,
     includeName: Boolean = true,
 ) {
-    Text(bookmarkTypeDescription(type), color = BossTheme.colors.textSecondary)
     if (includeName) BookmarkNameField(form)
     OutlinedTextField(
         form.target,
@@ -209,7 +224,7 @@ private fun BookmarkTargetFields(
         )
         Text(
             "Opens a new terminal. Running processes and terminal history are not saved.",
-            style = MaterialTheme.typography.caption,
+            style = MaterialTheme.typography.caption.copy(lineHeight = 18.sp),
             color = BossTheme.colors.textSecondary,
         )
     }
@@ -222,7 +237,10 @@ private fun BookmarkCollectionFields(
     showFavorite: Boolean = true,
 ) {
     BookmarkCollectionPicker(
-        collections = library.collections.map { it.id to it.name },
+        collections =
+            library.collections.map {
+                it.id to if (it.id in library.unfiledCollectionIds) "No folder" else it.name
+            },
         selectedId = form.collectionId,
         enabled = !form.busy,
         onSelect = { form.collectionId = it },
@@ -232,16 +250,16 @@ private fun BookmarkCollectionFields(
         OutlinedTextField(
             form.collectionName,
             { form.collectionName = it },
-            label = { Text("New collection name") },
+            label = { Text("New folder name") },
             singleLine = true,
             enabled = !form.busy,
             modifier = Modifier.fillMaxWidth(),
         )
         TextButton(enabled = !form.busy && form.collectionName.isNotBlank(), onClick = form::createCollection) {
-            Text("Create collection")
+            Text("Create folder")
         }
         TextButton(enabled = !form.busy, onClick = { form.creatingCollection = false }) {
-            Text("Cancel new collection")
+            Text("Cancel new folder")
         }
     }
     if (showFavorite) {
@@ -260,7 +278,7 @@ private fun BookmarkCollectionFields(
         }
         Text(
             "Favorites appear in the sidebar. All saved items remain in Bookmarks.",
-            style = MaterialTheme.typography.caption,
+            style = MaterialTheme.typography.caption.copy(lineHeight = 18.sp),
             color = BossTheme.colors.textSecondary,
         )
     }
@@ -279,33 +297,6 @@ private fun BookmarkEditorMessages(
     if (form.duplicateId != null) {
         TextButton(enabled = !form.busy, onClick = form::editDuplicate) { Text("Edit existing bookmark") }
         TextButton(enabled = form.canSave, onClick = { save(true) }) { Text("Save a separate copy") }
-    }
-}
-
-@Composable
-private fun BookmarkCollectionPicker(
-    collections: List<Pair<String, String>>,
-    selectedId: String,
-    enabled: Boolean,
-    onSelect: (String) -> Unit,
-    onCreate: () -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.weight(1f)) {
-            TextButton(enabled = enabled, onClick = { expanded = true }) {
-                Text("Collection: " + (collections.find { it.first == selectedId }?.second ?: "Choose collection"))
-            }
-            DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
-                collections.forEach { (id, name) ->
-                    DropdownMenuItem(onClick = {
-                        onSelect(id)
-                        expanded = false
-                    }) { Text(name) }
-                }
-            }
-        }
-        TextButton(enabled = enabled, onClick = onCreate) { Text("New collection") }
     }
 }
 

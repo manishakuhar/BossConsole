@@ -8,6 +8,7 @@ import ai.rever.boss.plugin.bookmark.BookmarkLibraryState
 import ai.rever.boss.plugin.bookmark.BookmarkMutationResult
 import ai.rever.boss.plugin.bookmark.BookmarkSaveRequest
 import ai.rever.boss.plugin.ui.BossOverlayHost
+import ai.rever.boss.plugin.ui.BossTheme
 import ai.rever.boss.plugin.ui.LocalHeavyweightOverlays
 import ai.rever.boss.plugin.workspace.TabConfig
 import androidx.compose.runtime.CompositionLocalProvider
@@ -63,14 +64,16 @@ class BookmarkEditorDialogTest {
     ) {
         rule.setContent {
             CompositionLocalProvider(LocalHeavyweightOverlays provides true) {
-                BookmarkEditorDialog(
-                    provider,
-                    config,
-                    preferFavorite = preferFavorite,
-                    existing = existing,
-                    onDismiss = { dismissed++ },
-                    onSaved = { savedId = it },
-                )
+                BossTheme {
+                    BookmarkEditorDialog(
+                        provider,
+                        config,
+                        preferFavorite = preferFavorite,
+                        existing = existing,
+                        onDismiss = { dismissed++ },
+                        onSaved = { savedId = it },
+                    )
+                }
             }
         }
         rule.mainClock.advanceTimeBy(500)
@@ -97,7 +100,7 @@ class BookmarkEditorDialogTest {
         showEditor(preferFavorite = false)
         rule.onNodeWithText("Save Bookmark").assertIsDisplayed()
         field("Startup folder (optional)").assertDoesNotExist()
-        rule.onNodeWithText("New collection", substring = false).assertDoesNotExist()
+        rule.onNodeWithText("New folder", substring = false).assertDoesNotExist()
         rule.onNode(isToggleable()).assertDoesNotExist()
         field("Name").performTextReplacement("Plain shortcut")
         rule.onNodeWithText("Save", substring = false).performClick()
@@ -135,10 +138,14 @@ class BookmarkEditorDialogTest {
 
     @Test fun `favorite more options edits target without exposing favorite toggle`() {
         showEditor(preferFavorite = true)
+        rule.onNodeWithText("Terminal shortcut · /work").assertExists()
         rule.onNodeWithText("More options").performClick()
+        rule.onNodeWithText("Terminal shortcut · /work").assertDoesNotExist()
+        rule.onNodeWithText("Terminal shortcut", substring = false).assertDoesNotExist()
+        rule.onNodeWithText("Folder", substring = false).assertExists()
         field("Startup folder (optional)").performTextReplacement("/other")
         rule.onNode(isToggleable()).assertDoesNotExist()
-        rule.onNodeWithText("Fewer options").performClick()
+        rule.onNodeWithText("Hide options").performClick()
         field("Startup folder (optional)").assertDoesNotExist()
         rule.onNodeWithText("Add", substring = false).performClick()
         rule.waitForIdle()
@@ -253,18 +260,52 @@ class BookmarkEditorDialogTest {
             BookmarkMutationResult(false, duplicateBookmarkId = bookmark.id, message = "Already saved")
     }
 
+    @Test fun `only explicit unfiled identity is displayed as No folder`() {
+        provider.state.value =
+            provider.state.value.copy(
+                collections =
+                    listOf(
+                        BookmarkCollection(id = "saved", name = "Unsorted"),
+                        BookmarkCollection(id = "custom", name = "Unsorted"),
+                    ),
+                unfiledCollectionIds = setOf("saved"),
+            )
+        showEditor(preferFavorite = false)
+        rule.onNodeWithText("More options").performClick()
+        rule.onNodeWithText("No folder", substring = false).performScrollTo().performClick()
+        rule.onNodeWithText("Unsorted", substring = false).assertIsDisplayed()
+    }
+
+    @Test fun `new bookmark chooses unfiled identity even when a custom folder is first`() {
+        provider.state.value =
+            provider.state.value.copy(
+                collections =
+                    listOf(
+                        BookmarkCollection(id = "custom", name = "Work"),
+                        BookmarkCollection(id = "unfiled", name = "Bookmarks"),
+                    ),
+                unfiledCollectionIds = setOf("unfiled"),
+            )
+        showEditor(preferFavorite = false)
+        rule.onNodeWithText("More options").performClick()
+        rule.onNodeWithText("No folder", substring = false).assertExists()
+        rule.onNodeWithText("Save", substring = false).performClick()
+        rule.waitForIdle()
+        assertEquals("unfiled", provider.saved.single().collectionId)
+    }
+
     @Test fun `collection creation failure retains input and can be cancelled`() {
         provider.failCollection = true
         showEditor()
         rule.onNodeWithText("More options").performClick()
-        rule.onNodeWithText("New collection", substring = false).performScrollTo().performClick()
-        field("New collection name").performTextReplacement("Research")
-        rule.onNodeWithText("Create collection", substring = false).performScrollTo().performClick()
+        rule.onNodeWithText("New folder", substring = false).performScrollTo().performClick()
+        field("New folder name").performTextReplacement("Research")
+        rule.onNodeWithText("Create folder", substring = false).performScrollTo().performClick()
         rule.waitForIdle()
         rule.onNodeWithText("Could not update bookmarks. Your changes are still here; try again.").assertExists()
         rule.onNode(hasSetTextAction() and hasText("Research")).assertExists()
-        rule.onNodeWithText("Cancel new collection").performScrollTo().performClick()
-        rule.onNodeWithText("New collection name").assertDoesNotExist()
+        rule.onNodeWithText("Cancel new folder").performScrollTo().performClick()
+        rule.onNodeWithText("New folder name").assertDoesNotExist()
         assertEquals(0, dismissed)
     }
 

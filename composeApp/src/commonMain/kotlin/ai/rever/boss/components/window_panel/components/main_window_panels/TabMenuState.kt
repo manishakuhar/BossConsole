@@ -1,8 +1,10 @@
 package ai.rever.boss.components.window_panel.components.main_window_panels
 
+import ai.rever.boss.components.bars.horizontal.StatusMessageManager
 import ai.rever.boss.components.bookmarks.Bookmark
 import ai.rever.boss.components.dialogs.BookmarkDeleteDialog
 import ai.rever.boss.components.dialogs.BookmarkEditorDialog
+import ai.rever.boss.components.dialogs.bookmarkProviderCall
 import ai.rever.boss.components.overlays.ContextMenuItem
 import ai.rever.boss.components.window_panel.SplitOrientation
 import ai.rever.boss.components.window_panel.SplitViewState
@@ -37,9 +39,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.focus.FocusRequester
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
+import kotlinx.coroutines.launch
 import java.lang.reflect.Method
 import java.util.Optional
 import java.util.concurrent.ConcurrentHashMap
@@ -124,6 +128,7 @@ fun BossTabsComponent.rememberTabMenuState(
     var bookmarkToEdit by remember { mutableStateOf<Bookmark?>(null) }
     var deleteTarget by remember { mutableStateOf<Bookmark?>(null) }
     var preferFavorite by remember { mutableStateOf<Boolean?>(null) }
+    val scope = rememberCoroutineScope()
     val library = rememberBookmarkLibrary()
     val libraryState = library?.state?.collectAsState()?.value
 
@@ -234,22 +239,29 @@ fun BossTabsComponent.rememberTabMenuState(
             val existingBookmark =
                 libraryState?.collections?.flatMap { it.bookmarks }?.find { it.id == existingIds?.second }
             val problem = bookmarkSaveProblem(tabConfig)
-            val available = library != null
+            val available = library != null && libraryState?.ready == true
+            val isFavorite = existingBookmark?.id in libraryState?.favoriteBookmarkIds.orEmpty()
             add(
                 ContextMenuItem(
                     when {
                         !available -> "Bookmarks unavailable - update or enable Bookmarks in Tools"
                         problem != null -> problem
-                        existingBookmark != null -> "Edit Bookmark"
-                        else -> "Save Bookmark"
+                        isFavorite -> "Remove from Favorites"
+                        else -> "Add to Favorites"
                     },
                     Icons.Outlined.Star,
                     enabled = available && problem == null,
                     onClick = {
-                        bookmarkToEdit = existingBookmark
-                        tabToBookmark = config
-                        preferFavorite = null
-                        showBookmarkDialog = true
+                        if (existingBookmark != null && library != null) {
+                            scope.launch {
+                                updateTabFavorite(library, existingBookmark.id, !isFavorite)
+                            }
+                        } else {
+                            bookmarkToEdit = null
+                            tabToBookmark = config
+                            preferFavorite = true
+                            showBookmarkDialog = true
+                        }
                     },
                 ),
             )
@@ -372,5 +384,22 @@ fun BossTabsComponent.rememberTabMenuState(
                 }
             }
         },
+    )
+}
+
+private suspend fun updateTabFavorite(
+    library: ai.rever.boss.plugin.bookmark.BookmarkLibraryProvider,
+    bookmarkId: String,
+    favorite: Boolean,
+) {
+    bookmarkProviderCall(
+        action = {
+            val result = library.setFavorite(bookmarkId, favorite, library.state.value.revision)
+            val successMessage = if (favorite) "Added to Favorites" else "Removed from Favorites"
+            StatusMessageManager.showMessage(
+                if (result.success) successMessage else result.message ?: "Could not update Favorites",
+            )
+        },
+        onError = { StatusMessageManager.showMessage(it) },
     )
 }

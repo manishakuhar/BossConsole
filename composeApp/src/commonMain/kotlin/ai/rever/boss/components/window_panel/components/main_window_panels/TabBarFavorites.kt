@@ -246,7 +246,7 @@ fun TabBarFavorites(
                     headline = "No Favorites yet",
                     // Names the exact menu item, because a hint that only says the feature exists
                     // leaves someone looking for a control that is two levels into a context menu.
-                    body = "Right-click a tab and choose Bookmark to keep it here",
+                    body = "Right-click a tab and choose Add to Bookmarks to keep it here",
                     actionLabel = null,
                     onAction = {},
                 )

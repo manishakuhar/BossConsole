@@ -29,7 +29,6 @@ import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Splitscreen
 import androidx.compose.material.icons.outlined.Star
-import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.outlined.ViewColumn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
@@ -228,6 +227,7 @@ fun BossTabsComponent.rememberTabMenuState(
 
             val tabConfig = convertTabInfoToTabConfig(config)
             val existingBookmark = BookmarkAPIAccess.findBookmarkForTab(tabConfig)
+            val bookmarksAvailable = BookmarkAPIAccess.getProvider() != null
 
             if (existingBookmark != null) {
                 // Tab is already bookmarked - show remove option WITH CONFIRMATION
@@ -241,29 +241,13 @@ fun BossTabsComponent.rememberTabMenuState(
             } else {
                 // Tab is not bookmarked - show add option
                 add(
-                    ContextMenuItem("Add to Bookmarks", Icons.Outlined.Star, onClick = {
-                        tabToBookmark = config
-                        showBookmarkDialog = true
-                    }),
-                )
-            }
-
-            // Favorite current workspace
-            val currentWorkspace = workspaceManager.currentWorkspace.value
-            if (currentWorkspace != null) {
-                val isFavorited = BookmarkAPIAccess.isFavorite(currentWorkspace.id)
-                add(
                     ContextMenuItem(
-                        if (isFavorited) "Unfavorite Space" else "Favorite Space",
-                        // The icon shows what the action DOES, matching the label: "Unfavorite"
-                        // empties the star, "Favorite" fills it.
-                        if (isFavorited) Icons.Outlined.StarBorder else Icons.Filled.Star,
+                        if (bookmarksAvailable) "Add to Bookmarks" else "Bookmarks unavailable — check Toolbox",
+                        Icons.Outlined.Star,
+                        enabled = bookmarksAvailable,
                         onClick = {
-                            if (isFavorited) {
-                                BookmarkAPIAccess.removeFavoriteWorkspace(currentWorkspace.id)
-                            } else {
-                                BookmarkAPIAccess.addFavoriteWorkspace(currentWorkspace.id, currentWorkspace.name)
-                            }
+                            tabToBookmark = config
+                            showBookmarkDialog = true
                         },
                     ),
                 )

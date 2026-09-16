@@ -132,10 +132,22 @@ object BookmarkAPIAccess {
  */
 @Composable
 fun rememberBookmarkCollections(): List<BookmarkCollection> {
-    val provider = BookmarkAPIAccess.getProvider()
+    val provider = rememberBookmarkProvider()
     return if (provider != null) {
         provider.collections.collectAsState().value
     } else {
         emptyList()
     }
+}
+
+/** Observe plugin availability as well as its data, so disabling it removes live actions. */
+@Composable
+internal fun rememberBookmarkProvider(): BookmarkDataProvider? {
+    val states =
+        ai.rever.boss.components.plugin.DynamicPluginManager
+            .anyActiveManager()
+            ?.pluginStates
+            ?.collectAsState()
+            ?.value
+    return androidx.compose.runtime.remember(states) { BookmarkAPIAccess.getProvider() }
 }

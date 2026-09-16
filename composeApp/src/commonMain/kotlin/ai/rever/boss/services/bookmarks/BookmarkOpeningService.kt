@@ -68,6 +68,7 @@ internal class BookmarkOpeningService(
                     openOnce(splitView, target, bookmark.tabConfig, forceNewTab) {
                         targetStillAvailable() && splitView.getPanel(target) === panel
                     }
+                linkTerminal(bookmark, result)
                 completion.complete(result)
                 result
             } catch (cancelled: CancellationException) {
@@ -81,6 +82,16 @@ internal class BookmarkOpeningService(
                 synchronized(lock) { inFlight.remove(key, completion) }
             }
         }
+
+    private fun linkTerminal(
+        bookmark: Bookmark,
+        result: BookmarkOpenResult,
+    ) {
+        val tabId = result.tabId
+        if (bookmark.tabConfig.type == "terminal" && result.success && tabId != null) {
+            TerminalBookmarkLinks.bind(tabId, bookmark.id)
+        }
+    }
 
     private suspend fun openOnce(
         splitView: SplitViewState,

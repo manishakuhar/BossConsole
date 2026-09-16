@@ -111,10 +111,28 @@ class BookmarkOpeningServiceTest {
             val first = service.open(state, saved)
             val second = service.open(state, saved)
             assertNotEquals(first.tabId, second.tabId)
+            assertEquals(saved.id, TerminalBookmarkLinks.find(requireNotNull(first.tabId)))
+            assertEquals(saved.id, TerminalBookmarkLinks.find(requireNotNull(second.tabId)))
             val sessions = tabs(state).filterIsInstance<TerminalTabInfo>()
             assertEquals(2, sessions.size)
             assertTrue(sessions.all { it.initialCommand == "printf preview" && it.workingDirectory == "/saved folder" })
         }
+
+    @Test fun `same directory terminal remains unrelated to explicit bookmarked session`() {
+        val linked = TerminalTabInfo("linked-regression", workingDirectory = "/saved")
+        val unrelated = TerminalTabInfo("unrelated-regression", workingDirectory = "/saved")
+        try {
+            TerminalBookmarkLinks.bind(linked.id, "bookmark-one")
+            assertEquals("bookmark-one", TerminalBookmarkLinks.find(linked.id))
+            assertNull(TerminalBookmarkLinks.find(unrelated.id))
+            TerminalBookmarkLinks.bind(linked.id, "bookmark-two")
+            assertEquals("bookmark-two", TerminalBookmarkLinks.find(linked.id))
+            TerminalBookmarkLinks.unbind(linked.id)
+            assertNull(TerminalBookmarkLinks.find(linked.id))
+        } finally {
+            TerminalBookmarkLinks.unbind(linked.id)
+        }
+    }
 
     @Test fun `file and notebook use correct registered provider and exact path reuse`() =
         runBlocking {

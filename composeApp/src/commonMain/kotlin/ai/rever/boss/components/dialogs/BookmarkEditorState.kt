@@ -91,6 +91,7 @@ internal class BookmarkEditorState(
                     ),
                 )
             if (result.success) {
+                bookmarkId = result.bookmarkId ?: bookmarkId
                 onSaved()
             } else {
                 error = result.message ?: "Could not save bookmark. Your changes are still here."

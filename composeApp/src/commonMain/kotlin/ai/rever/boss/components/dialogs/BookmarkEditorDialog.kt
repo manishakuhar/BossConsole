@@ -58,6 +58,7 @@ internal fun BookmarkEditorDialog(
     existing: Bookmark? = null,
     preferFavorite: Boolean? = null,
     onDismiss: () -> Unit,
+    onSaved: (String) -> Unit = {},
 ) {
     val library by provider.state.collectAsState()
     val scope = rememberCoroutineScope()
@@ -66,6 +67,7 @@ internal fun BookmarkEditorDialog(
     LaunchedEffect(library.ready) { form.initializeLoadedLibrary() }
     val save: (Boolean) -> Unit = { copy ->
         form.save(copy) {
+            form.bookmarkId?.let(onSaved)
             StatusMessageManager.showMessage(if (form.favorite) "Saved to Favorites" else "Bookmark saved")
             onDismiss()
         }

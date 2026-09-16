@@ -40,6 +40,7 @@ class BookmarkEditorDialogTest {
     private val config = TabConfig("terminal", "Original", workingDirectory = "/work", initialCommand = "pwd")
     private val provider = FakeLibrary()
     private var dismissed = 0
+    private var savedId: String? = null
 
     @Before fun setup() {
         resetOverlayFieldForTest("modalRenderer")
@@ -58,11 +59,30 @@ class BookmarkEditorDialogTest {
     private fun showEditor(preferFavorite: Boolean? = null) {
         rule.setContent {
             CompositionLocalProvider(LocalHeavyweightOverlays provides true) {
-                BookmarkEditorDialog(provider, config, preferFavorite = preferFavorite, onDismiss = { dismissed++ })
+                BookmarkEditorDialog(
+                    provider,
+                    config,
+                    preferFavorite = preferFavorite,
+                    onDismiss = { dismissed++ },
+                    onSaved = { savedId = it },
+                )
             }
         }
         rule.mainClock.advanceTimeBy(500)
         rule.waitForIdle()
+    }
+
+    @Test fun `successful save reports exact bookmark identity only after persistence`() {
+        provider.saveResult = BookmarkMutationResult(false, message = "Disk full")
+        showEditor(preferFavorite = true)
+        rule.onNodeWithText("Add", substring = false).performClick()
+        rule.waitForIdle()
+        assertEquals(null, savedId)
+        provider.saveResult = BookmarkMutationResult(true, bookmarkId = "saved-exact-id")
+        rule.onNodeWithText("Add", substring = false).performClick()
+        rule.waitForIdle()
+        assertEquals("saved-exact-id", savedId)
+        assertEquals(1, dismissed)
     }
 
     private fun field(label: String) = rule.onNode(hasSetTextAction() and hasText(label))

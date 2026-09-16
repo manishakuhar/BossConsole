@@ -13,6 +13,7 @@ import ai.rever.boss.plugin.api.TabInfo
 import ai.rever.boss.plugin.tab.codeeditor.EditorTabInfo
 import ai.rever.boss.plugin.tab.jupyter.JupyterTabInfo
 import ai.rever.boss.services.bookmarks.BookmarkAPIAccess
+import ai.rever.boss.services.bookmarks.TerminalBookmarkLinks
 import ai.rever.boss.services.bookmarks.bookmarkSaveProblem
 import ai.rever.boss.services.bookmarks.rememberBookmarkCollections
 import ai.rever.boss.services.bookmarks.rememberBookmarkLibrary
@@ -236,8 +237,14 @@ fun BossTabsComponent.rememberTabMenuState(
 
             val tabConfig = convertTabInfoToTabConfig(config)
             val existingIds = BookmarkAPIAccess.findBookmarkForTab(tabConfig)
+            val matchedId =
+                if (tabConfig.type == "terminal") {
+                    TerminalBookmarkLinks.find(config.id)
+                } else {
+                    existingIds?.second
+                }
             val existingBookmark =
-                libraryState?.collections?.flatMap { it.bookmarks }?.find { it.id == existingIds?.second }
+                libraryState?.collections?.flatMap { it.bookmarks }?.find { it.id == matchedId }
             val problem = bookmarkSaveProblem(tabConfig)
             val available = library != null && libraryState?.ready == true
             val isFavorite = existingBookmark?.id in libraryState?.favoriteBookmarkIds.orEmpty()
@@ -355,6 +362,11 @@ fun BossTabsComponent.rememberTabMenuState(
                         config = editedConfig,
                         existing = bookmarkToEdit,
                         preferFavorite = preferFavorite,
+                        onSaved = { bookmarkId ->
+                            tabToBookmark?.takeIf { editedConfig.type == "terminal" }?.let {
+                                TerminalBookmarkLinks.bind(it.id, bookmarkId)
+                            }
+                        },
                         onDismiss = {
                             showBookmarkDialog = false
                             tabToBookmark = null

@@ -6,7 +6,10 @@ import androidx.compose.runtime.mutableStateMapOf
 internal object TerminalBookmarkLinks {
     private val links = mutableStateMapOf<String, String>()
 
-    fun bind(tabId: String, bookmarkId: String) {
+    fun bind(
+        tabId: String,
+        bookmarkId: String,
+    ) {
         links[tabId] = bookmarkId
     }
 

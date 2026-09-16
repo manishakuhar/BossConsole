@@ -56,13 +56,17 @@ class BookmarkEditorDialogTest {
         BossOverlayHost.useHeavyweightOverlays = previousHeavyweight
     }
 
-    private fun showEditor(preferFavorite: Boolean? = null) {
+    private fun showEditor(
+        preferFavorite: Boolean? = null,
+        existing: Bookmark? = null,
+    ) {
         rule.setContent {
             CompositionLocalProvider(LocalHeavyweightOverlays provides true) {
                 BookmarkEditorDialog(
                     provider,
                     config,
                     preferFavorite = preferFavorite,
+                    existing = existing,
                     onDismiss = { dismissed++ },
                     onSaved = { savedId = it },
                 )
@@ -86,6 +90,22 @@ class BookmarkEditorDialogTest {
     }
 
     private fun field(label: String) = rule.onNode(hasSetTextAction() and hasText(label))
+
+    @Test fun `plain bookmark save is compact and persists without favoriting`() {
+        provider.saveResult = BookmarkMutationResult(true, bookmarkId = "plain-saved")
+        showEditor(preferFavorite = false)
+        rule.onNodeWithText("Save Bookmark").assertIsDisplayed()
+        field("Startup folder (optional)").assertDoesNotExist()
+        rule.onNodeWithText("New collection", substring = false).assertDoesNotExist()
+        rule.onNode(isToggleable()).assertDoesNotExist()
+        field("Name").performTextReplacement("Plain shortcut")
+        rule.onNodeWithText("Save", substring = false).performClick()
+        rule.waitForIdle()
+        assertEquals(false, provider.saved.single().favorite)
+        assertEquals("Plain shortcut", provider.saved.single().name)
+        assertEquals("plain-saved", savedId)
+        assertEquals(1, dismissed)
+    }
 
     @Test fun `add favorite starts compact and retains failure for retry`() {
         provider.saveResult = BookmarkMutationResult(false, message = "Disk full")
@@ -146,8 +166,10 @@ class BookmarkEditorDialogTest {
         assertEquals("Keep this draft", provider.saved.last().name)
     }
 
-    @Test fun `save passes edited name and favorite choice without opening a tab`() {
-        showEditor()
+    @Test fun `existing bookmark retains full fields and favorite choice`() {
+        provider.state.value = provider.state.value.copy(favoriteBookmarkIds = setOf("edit"))
+        showEditor(preferFavorite = true, existing = Bookmark(id = "edit", workspaceName = "Work", tabConfig = config))
+        field("Startup folder (optional)").assertIsDisplayed()
         field("Name").performTextReplacement("Build terminal")
         rule.onNode(isToggleable()).performClick()
         rule.onNodeWithText("Save", substring = false).performClick()
@@ -194,6 +216,7 @@ class BookmarkEditorDialogTest {
     @Test fun `collection creation failure retains input and can be cancelled`() {
         provider.failCollection = true
         showEditor()
+        rule.onNodeWithText("More options").performClick()
         rule.onNodeWithText("New collection", substring = false).performScrollTo().performClick()
         field("New collection name").performTextReplacement("Research")
         rule.onNodeWithText("Create collection", substring = false).performScrollTo().performClick()

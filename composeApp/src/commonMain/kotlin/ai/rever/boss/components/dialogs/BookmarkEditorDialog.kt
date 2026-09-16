@@ -63,7 +63,8 @@ internal fun BookmarkEditorDialog(
     val library by provider.state.collectAsState()
     val scope = rememberCoroutineScope()
     val form = remember { BookmarkEditorState(provider, config, existing, preferFavorite, scope) }
-    val addingFavorite = existing == null && preferFavorite == true && form.bookmarkId == null
+    val creatingBookmark = existing == null && form.bookmarkId == null
+    val addingFavorite = creatingBookmark && preferFavorite == true
     LaunchedEffect(library.ready) { form.initializeLoadedLibrary() }
     val save: (Boolean) -> Unit = { copy ->
         form.save(copy) {
@@ -102,8 +103,8 @@ internal fun BookmarkEditorDialog(
                 )
                 Spacer(Modifier.height(12.dp))
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
-                    if (addingFavorite) {
-                        FavoriteQuickFields(form, config.type, library)
+                    if (creatingBookmark) {
+                        BookmarkQuickFields(form, config.type, library)
                     } else {
                         BookmarkTargetFields(form, config.type)
                         BookmarkCollectionFields(form, library)
@@ -141,7 +142,7 @@ private fun BookmarkEditorActions(
 }
 
 @Composable
-private fun FavoriteQuickFields(
+private fun BookmarkQuickFields(
     form: BookmarkEditorState,
     type: String,
     library: BookmarkLibraryState,

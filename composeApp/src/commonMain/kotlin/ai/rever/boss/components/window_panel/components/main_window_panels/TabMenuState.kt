@@ -23,6 +23,8 @@ import ai.rever.boss.window.WindowOperations
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.BookmarkRemove
 import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Clear
@@ -251,13 +253,17 @@ fun BossTabsComponent.rememberTabMenuState(
             if (available && problem == null) {
                 add(
                     ContextMenuItem(
-                        if (existingBookmark == null) "Save Bookmark…" else "Bookmark saved",
-                        enabled = existingBookmark == null,
+                        if (existingBookmark == null) "Save Bookmark…" else "Remove Bookmark…",
+                        if (existingBookmark == null) Icons.Outlined.BookmarkBorder else Icons.Outlined.BookmarkRemove,
                         onClick = {
-                            bookmarkToEdit = null
-                            tabToBookmark = config
-                            preferFavorite = false
-                            showBookmarkDialog = true
+                            if (existingBookmark != null) {
+                                deleteTarget = existingBookmark
+                            } else {
+                                bookmarkToEdit = null
+                                tabToBookmark = config
+                                preferFavorite = false
+                                showBookmarkDialog = true
+                            }
                         },
                     ),
                 )

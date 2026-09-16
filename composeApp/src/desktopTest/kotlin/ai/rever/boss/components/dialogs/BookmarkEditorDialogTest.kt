@@ -1,0 +1,245 @@
+package ai.rever.boss.components.dialogs
+
+import ai.rever.boss.components.overlays.resetOverlayFieldForTest
+import ai.rever.boss.plugin.bookmark.Bookmark
+import ai.rever.boss.plugin.bookmark.BookmarkCollection
+import ai.rever.boss.plugin.bookmark.BookmarkLibraryProvider
+import ai.rever.boss.plugin.bookmark.BookmarkLibraryState
+import ai.rever.boss.plugin.bookmark.BookmarkMutationResult
+import ai.rever.boss.plugin.bookmark.BookmarkSaveRequest
+import ai.rever.boss.plugin.ui.BossOverlayHost
+import ai.rever.boss.plugin.ui.LocalHeavyweightOverlays
+import ai.rever.boss.plugin.workspace.TabConfig
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isToggleable
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.pressKey
+import kotlinx.coroutines.flow.MutableStateFlow
+import org.junit.After
+import org.junit.Before
+import org.junit.Rule
+import org.junit.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+
+class BookmarkEditorDialogTest {
+    @get:Rule val rule = createComposeRule()
+    private val previousRenderer = BossOverlayHost.modalRenderer
+    private val previousHeavyweight = BossOverlayHost.useHeavyweightOverlays
+    private val config = TabConfig("terminal", "Original", workingDirectory = "/work", initialCommand = "pwd")
+    private val provider = FakeLibrary()
+    private var dismissed = 0
+
+    @Before fun setup() {
+        resetOverlayFieldForTest("modalRenderer")
+        resetOverlayFieldForTest("useHeavyweightOverlays")
+        BossOverlayHost.useHeavyweightOverlays = true
+        BossOverlayHost.modalRenderer = { _, _, content -> content() }
+    }
+
+    @After fun cleanup() {
+        resetOverlayFieldForTest("modalRenderer")
+        resetOverlayFieldForTest("useHeavyweightOverlays")
+        BossOverlayHost.modalRenderer = previousRenderer
+        BossOverlayHost.useHeavyweightOverlays = previousHeavyweight
+    }
+
+    private fun showEditor() {
+        rule.setContent {
+            CompositionLocalProvider(LocalHeavyweightOverlays provides true) {
+                BookmarkEditorDialog(provider, config, onDismiss = { dismissed++ })
+            }
+        }
+        rule.mainClock.advanceTimeBy(500)
+        rule.waitForIdle()
+    }
+
+    private fun field(label: String) = rule.onNode(hasSetTextAction() and hasText(label))
+
+    @Test fun `failed persistence keeps edited input and allows retry`() {
+        provider.saveResult = BookmarkMutationResult(false, message = "Disk full")
+        showEditor()
+        field("Name").performTextReplacement("Keep this draft")
+        rule.onNodeWithText("Save", substring = false).performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Disk full").assertIsDisplayed()
+        rule.onNode(hasSetTextAction() and hasText("Keep this draft")).assertExists()
+        assertEquals(0, dismissed)
+        provider.saveResult = BookmarkMutationResult(true)
+        rule.onNodeWithText("Save", substring = false).performClick()
+        rule.waitForIdle()
+        assertEquals(1, dismissed)
+        assertEquals("Keep this draft", provider.saved.last().name)
+    }
+
+    @Test fun `save passes edited name and favorite choice without opening a tab`() {
+        showEditor()
+        field("Name").performTextReplacement("Build terminal")
+        rule.onNode(isToggleable()).performClick()
+        rule.onNodeWithText("Save", substring = false).performClick()
+        rule.waitForIdle()
+        assertEquals(1, dismissed)
+        assertEquals("Build terminal", provider.saved.single().name)
+        assertFalse(provider.saved.single().favorite)
+        assertEquals(
+            "pwd",
+            provider.saved
+                .single()
+                .tabConfig.initialCommand,
+        )
+    }
+
+    @Test fun `edit duplicate loads actual saved values before resaving`() {
+        val existing =
+            Bookmark(
+                id = "old",
+                workspaceName = "Work",
+                tabConfig = config.copy(title = "Saved name", workingDirectory = "/saved", initialCommand = "ls"),
+            )
+        provider.state.value =
+            provider.state.value.copy(
+                collections = listOf(BookmarkCollection(id = "saved", name = "Saved", bookmarks = listOf(existing))),
+                favoriteBookmarkIds = emptySet(),
+            )
+        provider.saveResult = BookmarkMutationResult(false, duplicateBookmarkId = "old", message = "Already saved")
+        showEditor()
+        field("Name").performTextReplacement("Unsaved draft name")
+        rule.onNodeWithText("Save", substring = false).performClick()
+        rule.onNodeWithText("Edit existing bookmark").performScrollTo().performClick()
+        rule.onNode(hasSetTextAction() and hasText("Saved name")).assertExists()
+        rule.onNode(hasSetTextAction() and hasText("/saved")).assertExists()
+        rule.onNode(hasSetTextAction() and hasText("ls")).assertExists()
+        provider.saveResult = BookmarkMutationResult(true)
+        rule.onNodeWithText("Save", substring = false).performClick()
+        rule.waitForIdle()
+        assertEquals("old", provider.saved.last().bookmarkId)
+        assertEquals("Saved name", provider.saved.last().name)
+        assertFalse(provider.saved.last().favorite)
+    }
+
+    @Test fun `collection creation failure retains input and can be cancelled`() {
+        provider.failCollection = true
+        showEditor()
+        rule.onNodeWithText("New collection", substring = false).performScrollTo().performClick()
+        field("New collection name").performTextReplacement("Research")
+        rule.onNodeWithText("Create collection", substring = false).performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Could not update bookmarks. Your changes are still here; try again.").assertExists()
+        rule.onNode(hasSetTextAction() and hasText("Research")).assertExists()
+        rule.onNodeWithText("Cancel new collection").performScrollTo().performClick()
+        rule.onNodeWithText("New collection name").assertDoesNotExist()
+        assertEquals(0, dismissed)
+    }
+
+    @Test fun `delete offers Undo and restores through returned token`() {
+        val bookmark = Bookmark(id = "delete-me", tabConfig = config, workspaceName = "Work")
+        rule.setContent {
+            CompositionLocalProvider(LocalHeavyweightOverlays provides true) {
+                BookmarkDeleteDialog(provider, bookmark, onDismiss = { dismissed++ })
+            }
+        }
+        rule.mainClock.advanceTimeBy(500)
+        rule.waitForIdle()
+        rule.onNodeWithText("Delete bookmark", substring = false).performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Bookmark deleted").assertIsDisplayed()
+        assertEquals(listOf("delete-me"), provider.deleted)
+        assertEquals(0, dismissed)
+        rule.onNodeWithText("Undo", substring = false).performClick()
+        rule.waitForIdle()
+        assertEquals(listOf("undo"), provider.undone)
+        assertEquals(1, dismissed)
+    }
+
+    @Test fun `Enter on Cancel dismisses without saving`() {
+        showEditor()
+        rule
+            .onNodeWithText("Cancel", substring = false)
+            .performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+            .performKeyInput { pressKey(Key.Enter) }
+        rule.waitForIdle()
+        assertEquals(1, dismissed)
+        assertEquals(emptyList(), provider.saved)
+    }
+
+    private class FakeLibrary : BookmarkLibraryProvider {
+        override val state =
+            MutableStateFlow(
+                BookmarkLibraryState(
+                    collections = listOf(BookmarkCollection(id = "saved", name = "Saved")),
+                    ready = true,
+                ),
+            )
+        var saveResult = BookmarkMutationResult(true)
+        var failCollection = false
+        val saved = mutableListOf<BookmarkSaveRequest>()
+        val deleted = mutableListOf<String>()
+        val undone = mutableListOf<String>()
+
+        override suspend fun saveBookmark(request: BookmarkSaveRequest): BookmarkMutationResult {
+            saved += request
+            return saveResult
+        }
+
+        override suspend fun createCollection(
+            name: String,
+            expectedRevision: Long,
+        ): BookmarkMutationResult {
+            if (failCollection) error("Disk unavailable")
+            return BookmarkMutationResult(true, collectionId = "new")
+        }
+
+        override suspend fun setFavorite(
+            bookmarkId: String,
+            favorite: Boolean,
+            expectedRevision: Long,
+        ) = BookmarkMutationResult(true)
+
+        override suspend fun moveBookmark(
+            bookmarkId: String,
+            collectionId: String,
+            expectedRevision: Long,
+        ) = BookmarkMutationResult(true)
+
+        override suspend fun deleteBookmark(
+            bookmarkId: String,
+            expectedRevision: Long,
+        ): BookmarkMutationResult {
+            deleted += bookmarkId
+            return BookmarkMutationResult(true, undoToken = "undo")
+        }
+
+        override suspend fun undo(
+            token: String,
+            expectedRevision: Long,
+        ): BookmarkMutationResult {
+            undone += token
+            return BookmarkMutationResult(true)
+        }
+
+        override suspend fun renameCollection(
+            collectionId: String,
+            name: String,
+            expectedRevision: Long,
+        ) = BookmarkMutationResult(true)
+
+        override suspend fun deleteCollection(
+            collectionId: String,
+            moveToCollectionId: String?,
+            expectedRevision: Long,
+        ) = BookmarkMutationResult(true)
+
+        override suspend fun reload() = Unit
+    }
+}

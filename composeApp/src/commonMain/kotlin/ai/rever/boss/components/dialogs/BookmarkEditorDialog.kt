@@ -62,7 +62,9 @@ internal fun BookmarkEditorDialog(
 ) {
     val library by provider.state.collectAsState()
     val scope = rememberCoroutineScope()
-    val form = remember { BookmarkEditorState(provider, config, existing, preferFavorite, scope) }
+    val form = remember(provider, config, existing?.id, preferFavorite) {
+        BookmarkEditorState(provider, config, existing, preferFavorite, scope)
+    }
     val creatingBookmark = existing == null && form.bookmarkId == null
     val addingFavorite = creatingBookmark && preferFavorite == true
     LaunchedEffect(library.ready) { form.initializeLoadedLibrary() }

@@ -11,6 +11,7 @@ import ai.rever.boss.plugin.ui.BossOverlayHost
 import ai.rever.boss.plugin.ui.LocalHeavyweightOverlays
 import ai.rever.boss.plugin.workspace.TabConfig
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
@@ -301,6 +302,32 @@ class BookmarkEditorDialogTest {
         rule.waitForIdle()
         assertEquals(1, dismissed)
         assertEquals(emptyList(), provider.saved)
+    }
+
+    @Test fun `replacing mounted terminal target resets form to the supplied browser`() {
+        val target = mutableStateOf(config)
+        rule.setContent {
+            CompositionLocalProvider(LocalHeavyweightOverlays provides true) {
+                BookmarkEditorDialog(provider, target.value, preferFavorite = false, onDismiss = {})
+            }
+        }
+        rule.mainClock.advanceTimeBy(500)
+        rule.waitForIdle()
+        field("Name").performTextReplacement("Old terminal draft")
+        rule.runOnIdle {
+            target.value = TabConfig("browser", "New website", url = "https://example.com")
+        }
+        rule.onNode(hasSetTextAction() and hasText("New website")).assertExists()
+        rule.onNodeWithText("Website bookmark · https://example.com").assertExists()
+        rule.onNode(hasSetTextAction() and hasText("Old terminal draft")).assertDoesNotExist()
+        rule.onNodeWithText("Save", substring = false).performClick()
+        rule.waitForIdle()
+        val saved = provider.saved.single()
+        assertEquals("browser", saved.tabConfig.type)
+        assertEquals("https://example.com", saved.tabConfig.url)
+        assertEquals("New website", saved.name)
+        assertEquals(null, saved.tabConfig.workingDirectory)
+        assertEquals(null, saved.tabConfig.initialCommand)
     }
 
     private class FakeLibrary : BookmarkLibraryProvider {

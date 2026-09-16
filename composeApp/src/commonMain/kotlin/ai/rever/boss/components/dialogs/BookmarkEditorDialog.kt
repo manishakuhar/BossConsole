@@ -62,9 +62,10 @@ internal fun BookmarkEditorDialog(
 ) {
     val library by provider.state.collectAsState()
     val scope = rememberCoroutineScope()
-    val form = remember(provider, config, existing?.id, preferFavorite) {
-        BookmarkEditorState(provider, config, existing, preferFavorite, scope)
-    }
+    val form =
+        remember(provider, config, existing?.id, preferFavorite) {
+            BookmarkEditorState(provider, config, existing, preferFavorite, scope)
+        }
     val creatingBookmark = existing == null && form.bookmarkId == null
     val addingFavorite = creatingBookmark && preferFavorite == true
     LaunchedEffect(library.ready) { form.initializeLoadedLibrary() }
@@ -95,14 +96,7 @@ internal fun BookmarkEditorDialog(
                     }
                 },
             ) {
-                Text(
-                    when {
-                        addingFavorite -> "Add to Favorites"
-                        form.bookmarkId == null -> "Save Bookmark"
-                        else -> "Edit Bookmark"
-                    },
-                    style = MaterialTheme.typography.h6,
-                )
+                Text(form.dialogTitle, style = MaterialTheme.typography.h6)
                 Spacer(Modifier.height(12.dp))
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
                     if (creatingBookmark) {

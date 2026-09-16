@@ -47,6 +47,13 @@ internal class BookmarkEditorState(
     private val workspaceName = existing?.workspaceName.orEmpty()
     private val addingToFavorites = preferFavorite == true && existing == null
 
+    val dialogTitle: String get() =
+        when {
+            addingToFavorites && bookmarkId == null -> "Add to Favorites"
+            bookmarkId == null -> "Save Bookmark"
+            else -> "Edit Bookmark"
+        }
+
     val edited: TabConfig get() =
         config.copy(
             title = name.trim(),

@@ -46,6 +46,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 
@@ -61,6 +62,7 @@ internal fun BookmarkEditorDialog(
     val library by provider.state.collectAsState()
     val scope = rememberCoroutineScope()
     val form = remember { BookmarkEditorState(provider, config, existing, preferFavorite, scope) }
+    val addingFavorite = existing == null && preferFavorite == true && form.bookmarkId == null
     LaunchedEffect(library.ready) { form.initializeLoadedLibrary() }
     val save: (Boolean) -> Unit = { copy ->
         form.save(copy) {
@@ -89,20 +91,36 @@ internal fun BookmarkEditorDialog(
                 },
             ) {
                 Text(
-                    if (form.bookmarkId == null) "Save Bookmark" else "Edit Bookmark",
+                    when {
+                        addingFavorite -> "Add to Favorites"
+                        form.bookmarkId == null -> "Save Bookmark"
+                        else -> "Edit Bookmark"
+                    },
                     style = MaterialTheme.typography.h6,
                 )
                 Spacer(Modifier.height(12.dp))
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
-                    BookmarkTargetFields(form, config.type)
-                    BookmarkCollectionFields(form, library)
+                    if (addingFavorite) {
+                        FavoriteQuickFields(form, config.type, library)
+                    } else {
+                        BookmarkTargetFields(form, config.type)
+                        BookmarkCollectionFields(form, library)
+                    }
                     BookmarkEditorMessages(form, library, save)
                 }
                 Spacer(Modifier.height(12.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(enabled = !form.busy, onClick = onDismiss) { Text("Cancel") }
                     Button(enabled = form.canSave, onClick = { save(false) }) {
-                        Text(if (form.busy) "Saving…" else "Save")
+                        Text(
+                            if (form.busy) {
+                                "Saving…"
+                            } else if (addingFavorite) {
+                                "Add"
+                            } else {
+                                "Save"
+                            },
+                        )
                     }
                 }
             }
@@ -111,11 +129,40 @@ internal fun BookmarkEditorDialog(
 }
 
 @Composable
-private fun BookmarkTargetFields(
+private fun FavoriteQuickFields(
     form: BookmarkEditorState,
     type: String,
+    library: BookmarkLibraryState,
 ) {
-    Text(bookmarkTypeDescription(type), color = BossTheme.colors.textSecondary)
+    var expanded by remember { mutableStateOf(false) }
+    BookmarkNameField(form)
+    Text(
+        bookmarkTypeDescription(type) + " · " + form.target.ifBlank { "Default startup folder" },
+        style = MaterialTheme.typography.caption,
+        color = BossTheme.colors.textSecondary,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+    )
+    if (type == "terminal" && form.command.isNotBlank()) {
+        Text(
+            "Startup command: " + form.command,
+            style = MaterialTheme.typography.caption,
+            color = BossTheme.colors.textSecondary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+    TextButton(enabled = !form.busy, onClick = { expanded = !expanded }) {
+        Text(if (expanded) "Fewer options" else "More options")
+    }
+    if (expanded) {
+        BookmarkTargetFields(form, type, includeName = false)
+        BookmarkCollectionFields(form, library, showFavorite = false)
+    }
+}
+
+@Composable
+private fun BookmarkNameField(form: BookmarkEditorState) {
     OutlinedTextField(
         form.name,
         { form.name = it },
@@ -124,6 +171,16 @@ private fun BookmarkTargetFields(
         enabled = !form.busy,
         modifier = Modifier.fillMaxWidth().onFocusChanged { form.inputFocused = it.isFocused },
     )
+}
+
+@Composable
+private fun BookmarkTargetFields(
+    form: BookmarkEditorState,
+    type: String,
+    includeName: Boolean = true,
+) {
+    Text(bookmarkTypeDescription(type), color = BossTheme.colors.textSecondary)
+    if (includeName) BookmarkNameField(form)
     OutlinedTextField(
         form.target,
         { form.target = it },
@@ -153,6 +210,7 @@ private fun BookmarkTargetFields(
 private fun BookmarkCollectionFields(
     form: BookmarkEditorState,
     library: BookmarkLibraryState,
+    showFavorite: Boolean = true,
 ) {
     BookmarkCollectionPicker(
         collections = library.collections.map { it.id to it.name },
@@ -177,24 +235,26 @@ private fun BookmarkCollectionFields(
             Text("Cancel new collection")
         }
     }
-    Row(
-        modifier =
-            Modifier.fillMaxWidth().toggleable(
-                value = form.favorite,
-                enabled = !form.busy,
-                role = Role.Checkbox,
-                onValueChange = { form.favorite = it },
-            ),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Checkbox(form.favorite, onCheckedChange = null, enabled = !form.busy)
-        Text("Show in Favorites")
+    if (showFavorite) {
+        Row(
+            modifier =
+                Modifier.fillMaxWidth().toggleable(
+                    value = form.favorite,
+                    enabled = !form.busy,
+                    role = Role.Checkbox,
+                    onValueChange = { form.favorite = it },
+                ),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Checkbox(form.favorite, onCheckedChange = null, enabled = !form.busy)
+            Text("Show in Favorites")
+        }
+        Text(
+            "Favorites appear in the sidebar. All saved items remain in Bookmarks.",
+            style = MaterialTheme.typography.caption,
+            color = BossTheme.colors.textSecondary,
+        )
     }
-    Text(
-        "Favorites appear in the sidebar. All saved items remain in Bookmarks.",
-        style = MaterialTheme.typography.caption,
-        color = BossTheme.colors.textSecondary,
-    )
 }
 
 @Composable

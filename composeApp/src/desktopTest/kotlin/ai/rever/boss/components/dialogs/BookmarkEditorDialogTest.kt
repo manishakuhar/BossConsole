@@ -55,10 +55,10 @@ class BookmarkEditorDialogTest {
         BossOverlayHost.useHeavyweightOverlays = previousHeavyweight
     }
 
-    private fun showEditor() {
+    private fun showEditor(preferFavorite: Boolean? = null) {
         rule.setContent {
             CompositionLocalProvider(LocalHeavyweightOverlays provides true) {
-                BookmarkEditorDialog(provider, config, onDismiss = { dismissed++ })
+                BookmarkEditorDialog(provider, config, preferFavorite = preferFavorite, onDismiss = { dismissed++ })
             }
         }
         rule.mainClock.advanceTimeBy(500)
@@ -66,6 +66,49 @@ class BookmarkEditorDialogTest {
     }
 
     private fun field(label: String) = rule.onNode(hasSetTextAction() and hasText(label))
+
+    @Test fun `add favorite starts compact and retains failure for retry`() {
+        provider.saveResult = BookmarkMutationResult(false, message = "Disk full")
+        showEditor(preferFavorite = true)
+        rule.onNodeWithText("Add to Favorites").assertIsDisplayed()
+        field("Startup folder (optional)").assertDoesNotExist()
+        rule.onNode(isToggleable()).assertDoesNotExist()
+        field("Name").performTextReplacement("Daily work")
+        rule.onNodeWithText("Add", substring = false).performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("Disk full").assertIsDisplayed()
+        assertEquals(0, dismissed)
+        assertEquals(true, provider.saved.single().favorite)
+        assertEquals(
+            "/work",
+            provider.saved
+                .single()
+                .tabConfig.workingDirectory,
+        )
+        provider.saveResult = BookmarkMutationResult(true)
+        rule.onNodeWithText("Add", substring = false).performClick()
+        rule.waitForIdle()
+        assertEquals(1, dismissed)
+        assertEquals("Daily work", provider.saved.last().name)
+    }
+
+    @Test fun `favorite more options edits target without exposing favorite toggle`() {
+        showEditor(preferFavorite = true)
+        rule.onNodeWithText("More options").performClick()
+        field("Startup folder (optional)").performTextReplacement("/other")
+        rule.onNode(isToggleable()).assertDoesNotExist()
+        rule.onNodeWithText("Fewer options").performClick()
+        field("Startup folder (optional)").assertDoesNotExist()
+        rule.onNodeWithText("Add", substring = false).performClick()
+        rule.waitForIdle()
+        assertEquals(
+            "/other",
+            provider.saved
+                .single()
+                .tabConfig.workingDirectory,
+        )
+        assertEquals(true, provider.saved.single().favorite)
+    }
 
     @Test fun `failed persistence keeps edited input and allows retry`() {
         provider.saveResult = BookmarkMutationResult(false, message = "Disk full")

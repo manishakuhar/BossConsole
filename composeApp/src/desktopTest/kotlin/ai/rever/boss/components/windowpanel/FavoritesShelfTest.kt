@@ -84,9 +84,9 @@ class FavoritesShelfTest {
         }
         rule.onNode(hasScrollAction()).performScrollToNode(hasText("Terminal 20"))
         rule.onNodeWithText("Terminal 20").assertIsDisplayed().performClick()
-        rule.onNodeWithText("FAVORITES (20)").assertIsDisplayed()
+        rule.onNodeWithText("FAVORITES").assertIsDisplayed()
         rule.onNodeWithText("Collapse").assertIsDisplayed()
-        rule.onNodeWithText("All Bookmarks").assertIsDisplayed().performClick()
+        rule.onNodeWithContentDescription("All Bookmarks").assertIsDisplayed().performClick()
         rule.waitForIdle()
         assertEquals("saved-20", opened)
         assertEquals(1, library)

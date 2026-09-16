@@ -37,6 +37,7 @@ import androidx.compose.material.TextButton
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Terminal
@@ -95,10 +96,7 @@ fun TabBarFavorites(
                 .border(1.dp, borderColor, RoundedCornerShape(4.dp))
                 .padding(horizontal = 6.dp, vertical = 6.dp),
     ) {
-        FavoritesHeader(bookmarks.size, trailing)
-        if (openAll != null && apiReachable) {
-            TextButton(onClick = openAll) { Text("All Bookmarks", color = BossTheme.colors.signal, fontSize = 11.sp) }
-        }
+        FavoritesHeader(trailing, openAll.takeIf { apiReachable })
         when {
             pluginInstalled == false -> {
                 FavoritesEmptyState(
@@ -117,9 +115,17 @@ fun TabBarFavorites(
             }
 
             bookmarks.isEmpty() -> {
-                FavoritesEmptyState(
-                    "No favorites yet",
-                    "Right-click a tab, choose Save Bookmark, then add it to Favorites.",
+                Text(
+                    "Right-click a tab to add a favorite.",
+                    color = BossTheme.colors.textSecondary,
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp,
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp)
+                            .border(1.dp, BossTheme.colors.line, RoundedCornerShape(6.dp))
+                            .padding(8.dp),
                 )
             }
 
@@ -136,12 +142,12 @@ fun TabBarFavorites(
 
 @Composable
 private fun FavoritesHeader(
-    count: Int,
     trailing: @Composable () -> Unit,
+    onOpenAll: (() -> Unit)?,
 ) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(
-            text = "FAVORITES ($count)",
+            text = "FAVORITES",
             color = BossTheme.colors.textSecondary,
             fontSize = 10.sp,
             fontWeight = FontWeight.SemiBold,
@@ -149,6 +155,18 @@ private fun FavoritesHeader(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f).padding(start = 4.dp),
         )
+        if (onOpenAll != null) {
+            HoverTooltipBox(text = "All Bookmarks") {
+                IconButton(onClick = onOpenAll, modifier = Modifier.size(24.dp)) {
+                    Icon(
+                        Icons.Outlined.Bookmarks,
+                        contentDescription = "All Bookmarks",
+                        tint = BossTheme.colors.textSecondary,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
+            }
+        }
         trailing()
     }
 }

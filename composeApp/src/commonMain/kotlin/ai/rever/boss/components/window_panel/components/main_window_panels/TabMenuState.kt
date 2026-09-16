@@ -1,9 +1,8 @@
 package ai.rever.boss.components.window_panel.components.main_window_panels
 
 import ai.rever.boss.components.bookmarks.Bookmark
-import ai.rever.boss.components.bookmarks.WorkspacePanelTarget
-import ai.rever.boss.components.dialogs.BookmarkDialog
-import ai.rever.boss.components.dialogs.RemoveBookmarkConfirmationDialog
+import ai.rever.boss.components.dialogs.BookmarkDeleteDialog
+import ai.rever.boss.components.dialogs.BookmarkEditorDialog
 import ai.rever.boss.components.overlays.ContextMenuItem
 import ai.rever.boss.components.window_panel.SplitOrientation
 import ai.rever.boss.components.window_panel.SplitViewState
@@ -12,7 +11,9 @@ import ai.rever.boss.plugin.api.TabInfo
 import ai.rever.boss.plugin.tab.codeeditor.EditorTabInfo
 import ai.rever.boss.plugin.tab.jupyter.JupyterTabInfo
 import ai.rever.boss.services.bookmarks.BookmarkAPIAccess
+import ai.rever.boss.services.bookmarks.bookmarkSaveProblem
 import ai.rever.boss.services.bookmarks.rememberBookmarkCollections
+import ai.rever.boss.services.bookmarks.rememberBookmarkLibrary
 import ai.rever.boss.utils.revealInFileManager
 import ai.rever.boss.utils.revealInFileManagerLabel
 import ai.rever.boss.window.WindowOperations
@@ -98,6 +99,8 @@ class TabMenuState internal constructor(
      * the pointer leaves, dialogs included, so it has to know a dialog it raised is still open.
      */
     val anyDialogOpen: () -> Boolean,
+    val editBookmark: (Bookmark) -> Unit = {},
+    val deleteBookmark: (Bookmark) -> Unit = {},
 )
 
 /**
@@ -118,10 +121,11 @@ fun BossTabsComponent.rememberTabMenuState(
     var showBookmarkDialog by remember { mutableStateOf(false) }
     var tabToBookmark by remember { mutableStateOf<TabInfo?>(null) }
 
-    // Remove bookmark dialog state
-    var showRemoveBookmarkDialog by remember { mutableStateOf(false) }
-    var bookmarkToRemove by remember { mutableStateOf<Triple<String, String, String>?>(null) }
-    // Triple = (collectionId, bookmarkId, tabTitle)
+    var bookmarkToEdit by remember { mutableStateOf<Bookmark?>(null) }
+    var deleteTarget by remember { mutableStateOf<Bookmark?>(null) }
+    var preferFavorite by remember { mutableStateOf<Boolean?>(null) }
+    val library = rememberBookmarkLibrary()
+    val libraryState = library?.state?.collectAsState()?.value
 
     // Observe collections for reactive context menu updates (gracefully handles missing plugin)
     val collections = rememberBookmarkCollections()
@@ -226,36 +230,29 @@ fun BossTabsComponent.rememberTabMenuState(
             collections
 
             val tabConfig = convertTabInfoToTabConfig(config)
-            val existingBookmark = BookmarkAPIAccess.findBookmarkForTab(tabConfig)
-            val bookmarksAvailable = BookmarkAPIAccess.getProvider() != null
-
-            if (existingBookmark != null) {
-                // Tab is already bookmarked - show remove option WITH CONFIRMATION
-                val (collectionId, bookmarkId) = existingBookmark
-                add(
-                    ContextMenuItem("Remove from Bookmarks", Icons.Filled.Star, onClick = {
-                        bookmarkToRemove = Triple(collectionId, bookmarkId, config.title)
-                        showRemoveBookmarkDialog = true
-                    }),
-                )
-            } else {
-                // Tab is not bookmarked - show add option
-                add(
-                    ContextMenuItem(
-                        when {
-                            !bookmarksAvailable -> "Bookmarks unavailable — check Toolbox"
-                            tabConfig.type == "unknown" -> "Bookmarking is not supported for this tab"
-                            else -> "Add to Bookmarks"
-                        },
-                        Icons.Outlined.Star,
-                        enabled = bookmarksAvailable && tabConfig.type != "unknown",
-                        onClick = {
-                            tabToBookmark = config
-                            showBookmarkDialog = true
-                        },
-                    ),
-                )
-            }
+            val existingIds = BookmarkAPIAccess.findBookmarkForTab(tabConfig)
+            val existingBookmark =
+                libraryState?.collections?.flatMap { it.bookmarks }?.find { it.id == existingIds?.second }
+            val problem = bookmarkSaveProblem(tabConfig)
+            val available = library != null
+            add(
+                ContextMenuItem(
+                    when {
+                        !available -> "Bookmarks unavailable - update or enable Bookmarks in Tools"
+                        problem != null -> problem
+                        existingBookmark != null -> "Edit Bookmark"
+                        else -> "Save Bookmark"
+                    },
+                    Icons.Outlined.Star,
+                    enabled = available && problem == null,
+                    onClick = {
+                        bookmarkToEdit = existingBookmark
+                        tabToBookmark = config
+                        preferFavorite = null
+                        showBookmarkDialog = true
+                    },
+                ),
+            )
 
             add(ContextMenuItem(isDivider = true))
 
@@ -322,88 +319,57 @@ fun BossTabsComponent.rememberTabMenuState(
 
     return TabMenuState(
         items = tabMenuItems,
-        anyDialogOpen = { showBookmarkDialog || showRemoveBookmarkDialog },
+        anyDialogOpen = { showBookmarkDialog || deleteTarget != null },
         bookmarkTab = { tab ->
             tabToBookmark = tab
+            bookmarkToEdit = null
+            preferFavorite = true
             showBookmarkDialog = true
         },
+        editBookmark = { bookmark ->
+            tabToBookmark = null
+            bookmarkToEdit = bookmark
+            preferFavorite = null
+            showBookmarkDialog = true
+        },
+        deleteBookmark = { deleteTarget = it },
         dialogs = {
-            // Bookmark dialog (gracefully handles missing bookmarks plugin)
-            if (showBookmarkDialog && tabToBookmark != null) {
-                val dialogCollections = rememberBookmarkCollections()
-                val workspaces by workspaceManager.workspaces.collectAsState()
-                BookmarkDialog(
-                    tabTitle = tabToBookmark!!.title,
-                    unavailableReason =
-                        when {
-                            BookmarkAPIAccess.getProvider() == null -> {
-                                "Bookmarks unavailable. Check the Toolbox."
-                            }
-
-                            convertTabInfoToTabConfig(
-                                tabToBookmark!!,
-                            ).type == "unknown" -> {
-                                "This tab cannot be saved as a bookmark yet. " +
-                                    "You can pin it to keep it at the top of this pane."
-                            }
-
-                            else -> {
-                                null
+            val editedConfig =
+                bookmarkToEdit?.tabConfig ?: tabToBookmark?.let(::convertTabInfoToTabConfig)
+            if (showBookmarkDialog && editedConfig != null) {
+                if (library != null) {
+                    BookmarkEditorDialog(
+                        provider = library,
+                        config = editedConfig,
+                        existing = bookmarkToEdit,
+                        preferFavorite = preferFavorite,
+                        onDismiss = {
+                            showBookmarkDialog = false
+                            tabToBookmark = null
+                            bookmarkToEdit = null
+                        },
+                    )
+                } else {
+                    androidx.compose.material.AlertDialog(
+                        onDismissRequest = { showBookmarkDialog = false },
+                        title = { androidx.compose.material.Text("Bookmarks unavailable") },
+                        text = {
+                            androidx.compose.material.Text(
+                                "Update or enable Bookmarks in Tools, then try again.",
+                            )
+                        },
+                        confirmButton = {
+                            androidx.compose.material.TextButton(onClick = { showBookmarkDialog = false }) {
+                                androidx.compose.material.Text("Close")
                             }
                         },
-                    collections = dialogCollections,
-                    workspaces = workspaces,
-                    onDismiss = {
-                        showBookmarkDialog = false
-                        tabToBookmark = null
-                    },
-                    onConfirm = confirm@{ collectionIds, workspacePanelMap ->
-                        val tabConfig = convertTabInfoToTabConfig(tabToBookmark!!)
-                        if (tabConfig.type == "unknown" || BookmarkAPIAccess.getProvider() == null) return@confirm
-                        val workspace = workspaceManager.currentWorkspace.value
-
-                        // Convert workspacePanelMap to list of WorkspacePanelTarget
-                        val targetWorkspaces =
-                            workspacePanelMap.map { (workspaceName, panelId) ->
-                                WorkspacePanelTarget(workspaceName = workspaceName, panelId = panelId)
-                            }
-
-                        // Create bookmark for each selected collection
-                        collectionIds.forEach { collectionId ->
-                            val bookmark =
-                                Bookmark(
-                                    tabConfig = tabConfig,
-                                    workspaceName = workspace?.name ?: "Unknown",
-                                    targetWorkspaces = targetWorkspaces,
-                                )
-                            val collection = dialogCollections.find { it.id == collectionId }
-                            if (collection != null) {
-                                BookmarkAPIAccess.addBookmark(collection.name, bookmark)
-                            }
-                        }
-
-                        showBookmarkDialog = false
-                        tabToBookmark = null
-                    },
-                )
+                    )
+                }
             }
-
-            // Remove bookmark confirmation dialog
-            if (showRemoveBookmarkDialog && bookmarkToRemove != null) {
-                RemoveBookmarkConfirmationDialog(
-                    bookmarkTitle = bookmarkToRemove!!.third,
-                    onDismiss = {
-                        showRemoveBookmarkDialog = false
-                        bookmarkToRemove = null
-                    },
-                    onConfirm = {
-                        bookmarkToRemove?.let { (collectionId, bookmarkId, _) ->
-                            BookmarkAPIAccess.removeBookmark(collectionId, bookmarkId)
-                        }
-                        showRemoveBookmarkDialog = false
-                        bookmarkToRemove = null
-                    },
-                )
+            deleteTarget?.let { target ->
+                library?.let { provider ->
+                    BookmarkDeleteDialog(provider, target, onDismiss = { deleteTarget = null })
+                }
             }
         },
     )

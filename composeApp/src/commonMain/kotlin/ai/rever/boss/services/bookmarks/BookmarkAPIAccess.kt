@@ -10,6 +10,7 @@ import ai.rever.boss.utils.logging.BossLogger
 import ai.rever.boss.utils.logging.LogCategory
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import kotlinx.coroutines.flow.StateFlow
 
 private val logger = BossLogger.forComponent("BookmarkAPIAccess")
 
@@ -51,6 +52,11 @@ object BookmarkAPIAccess {
         val plugin = cachedDefaultPlugin ?: return null
         return plugin.getPluginAPI(BookmarkDataProvider::class.java)
     }
+
+    fun getLibrary(): ai.rever.boss.plugin.bookmark.BookmarkLibraryProvider? =
+        cachedDefaultPlugin?.getPluginAPI(ai.rever.boss.plugin.bookmark.BookmarkLibraryProvider::class.java)
+
+    internal fun registryVersion(): StateFlow<Int>? = cachedDefaultPlugin?.apiRegistryVersion
 
     /**
      * Get the BookmarkDataProvider using the provided DefaultPlugin.
@@ -150,4 +156,12 @@ internal fun rememberBookmarkProvider(): BookmarkDataProvider? {
             ?.collectAsState()
             ?.value
     return androidx.compose.runtime.remember(states) { BookmarkAPIAccess.getProvider() }
+}
+
+/** Observe API registration as well as plugin load/unload, including asynchronous registration. */
+@Composable
+internal fun rememberBookmarkLibrary(): ai.rever.boss.plugin.bookmark.BookmarkLibraryProvider? {
+    val provider = rememberBookmarkProvider()
+    val version = BookmarkAPIAccess.registryVersion()?.collectAsState()?.value
+    return androidx.compose.runtime.remember(provider, version) { BookmarkAPIAccess.getLibrary() }
 }

@@ -1,4 +1,4 @@
-package ai.rever.boss.components.window_panel
+package ai.rever.boss.components.windowpanel
 
 import ai.rever.boss.components.overlays.ContextMenuItem
 import ai.rever.boss.components.window_panel.components.main_window_panels.favoriteWorkspaceItem
@@ -47,7 +47,13 @@ class WorkspaceFavoriteMenuTest {
             }
         } as BookmarkDataProvider
 
-    private fun space(id: String) = LayoutWorkspace(id, id, "", SplitConfig.SinglePanel(PanelConfig("main", emptyList())))
+    private fun space(id: String) =
+        LayoutWorkspace(
+            id = id,
+            name = id,
+            description = "",
+            layout = SplitConfig.SinglePanel(PanelConfig("main", emptyList())),
+        )
 
     @Test fun `favorite action updates immediately and only changes the selected Space`() {
         var current by mutableStateOf(space("first"))

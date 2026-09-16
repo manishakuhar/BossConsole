@@ -2545,7 +2545,7 @@ internal fun convertTabInfoToTabConfig(tabInfo: TabInfo): TabConfig =
             TabConfig(
                 type = "browser",
                 title = tabInfo.title,
-                url = tabInfo.url,
+                url = tabInfo.currentUrl,
                 faviconCacheKey = tabInfo.faviconCacheKey,
             )
         }
@@ -2558,10 +2558,12 @@ internal fun convertTabInfoToTabConfig(tabInfo: TabInfo): TabConfig =
             )
         }
 
-        is TerminalTabInfo -> {
+        is ai.rever.boss.plugin.api.TerminalTabInfoInterface -> {
             TabConfig(
                 type = "terminal",
                 title = tabInfo.title,
+                workingDirectory = tabInfo.workingDirectory,
+                initialCommand = tabInfo.initialCommand,
             )
         }
 

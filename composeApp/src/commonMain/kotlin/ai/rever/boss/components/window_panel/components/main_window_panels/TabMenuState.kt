@@ -242,9 +242,13 @@ fun BossTabsComponent.rememberTabMenuState(
                 // Tab is not bookmarked - show add option
                 add(
                     ContextMenuItem(
-                        if (bookmarksAvailable) "Add to Bookmarks" else "Bookmarks unavailable — check Toolbox",
+                        when {
+                            !bookmarksAvailable -> "Bookmarks unavailable — check Toolbox"
+                            tabConfig.type == "unknown" -> "Bookmarking is not supported for this tab"
+                            else -> "Add to Bookmarks"
+                        },
                         Icons.Outlined.Star,
-                        enabled = bookmarksAvailable,
+                        enabled = bookmarksAvailable && tabConfig.type != "unknown",
                         onClick = {
                             tabToBookmark = config
                             showBookmarkDialog = true
@@ -330,14 +334,32 @@ fun BossTabsComponent.rememberTabMenuState(
                 val workspaces by workspaceManager.workspaces.collectAsState()
                 BookmarkDialog(
                     tabTitle = tabToBookmark!!.title,
+                    unavailableReason =
+                        when {
+                            BookmarkAPIAccess.getProvider() == null -> {
+                                "Bookmarks unavailable. Check the Toolbox."
+                            }
+
+                            convertTabInfoToTabConfig(
+                                tabToBookmark!!,
+                            ).type == "unknown" -> {
+                                "This tab cannot be saved as a bookmark yet. " +
+                                    "You can pin it to keep it at the top of this pane."
+                            }
+
+                            else -> {
+                                null
+                            }
+                        },
                     collections = dialogCollections,
                     workspaces = workspaces,
                     onDismiss = {
                         showBookmarkDialog = false
                         tabToBookmark = null
                     },
-                    onConfirm = { collectionIds, workspacePanelMap ->
+                    onConfirm = confirm@{ collectionIds, workspacePanelMap ->
                         val tabConfig = convertTabInfoToTabConfig(tabToBookmark!!)
+                        if (tabConfig.type == "unknown" || BookmarkAPIAccess.getProvider() == null) return@confirm
                         val workspace = workspaceManager.currentWorkspace.value
 
                         // Convert workspacePanelMap to list of WorkspacePanelTarget

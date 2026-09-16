@@ -33,6 +33,7 @@ internal fun BookmarkDeleteDialog(
     onDismiss: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    val confirmedRevision = remember(bookmark.id) { provider.state.value.revision }
     var undoToken by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -48,7 +49,7 @@ internal fun BookmarkDeleteDialog(
                             if (undo) {
                                 provider.undo(requireNotNull(undoToken), revision)
                             } else {
-                                provider.deleteBookmark(bookmark.id, revision)
+                                provider.deleteBookmark(bookmark.id, confirmedRevision)
                             }
                         if (result.success) {
                             if (undo) onDismiss() else undoToken = result.undoToken

@@ -466,7 +466,7 @@ fun BossTabsComponent.rememberTabBarState(
     // running, which is exactly the gap the first version fell into.
     val bookmarksInstalled =
         remember(pluginStates) { MissingPluginOffer.isInstalled(BOOKMARKS_PLUGIN_ID) }
-    val bookmarksApiReachable = bookmarkLibraryState?.ready == true
+    val bookmarksApiReachable = bookmarkLibrary != null
 
     // LazyListState for tab bar scrolling. Remembered unconditionally even when the caller
     // supplies one: a remember that appears only on some compositions is a positional slot that

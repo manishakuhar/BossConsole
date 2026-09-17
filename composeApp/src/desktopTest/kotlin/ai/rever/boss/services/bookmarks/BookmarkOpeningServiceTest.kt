@@ -13,6 +13,8 @@ import ai.rever.boss.plugin.bookmark.BookmarkCollection
 import ai.rever.boss.plugin.bookmark.BookmarkOpenResult
 import ai.rever.boss.plugin.bookmark.BookmarkOpeningProvider
 import ai.rever.boss.plugin.tab.codeeditor.EditorTabInfo
+import ai.rever.boss.plugin.tab.composer.ComposerTabInfo
+import ai.rever.boss.plugin.tab.diff.DiffTabInfo
 import ai.rever.boss.plugin.tab.jupyter.JupyterTabInfo
 import ai.rever.boss.plugin.tab.terminal.TerminalTabInfo
 import ai.rever.boss.plugin.workspace.TabConfig
@@ -303,4 +305,47 @@ class BookmarkOpeningServiceTest {
             ),
         )
     }
+
+    @Test fun `working tree diff preserves project and deleted path but never reuses staged scope`() =
+        runBlocking {
+            val state = window("diff")
+            val opener =
+                BookmarkOpeningService(
+                    Dispatchers.Unconfined,
+                    resolveProjectDirectory = { "/project" },
+                    checkPath = { _, _ -> false },
+                )
+            val config = TabConfig("diff", "Deleted file", filePath = "deleted.txt", workingDirectory = "/project")
+            val saved = bookmark(config)
+            state.getPanel(state.activePanelId)!!.tabsComponent.addTab(DiffTabInfo.create("deleted.txt", staged = true))
+            val first = opener.open(state, saved)
+            assertTrue(first.success)
+            assertFalse(first.reused)
+            assertEquals("deleted.txt", (tabs(state).last() as DiffTabInfo).filePath)
+            assertTrue(opener.open(state, saved).reused)
+            val wrongProject = BookmarkOpeningService(Dispatchers.Unconfined, resolveProjectDirectory = { "/other" })
+            assertFalse(wrongProject.open(state, saved).success)
+            assertFalse(opener.open(state, bookmark(config.copy(workingDirectory = null))).success)
+            assertFalse(opener.open(state, bookmark(config.copy(filePath = "../outside"))).success)
+            assertFalse(opener.open(window(), saved).success)
+        }
+
+    @Test fun `composer restores exact opaque session and checks tool not filesystem`() =
+        runBlocking {
+            val state = window("composer")
+            val opener =
+                BookmarkOpeningService(
+                    Dispatchers.Unconfined,
+                    checkPath = { _, _ -> error("Composer is not a file") },
+                )
+            val saved = bookmark(TabConfig("composer", "Plan", filePath = "session:opaque"))
+            val first = opener.open(state, saved)
+            assertTrue(first.success)
+            assertEquals("session:opaque", (tabs(state).single() as ComposerTabInfo).sessionId)
+            assertEquals("session:opaque", first.tabId)
+            assertTrue(opener.open(state, saved).reused)
+            assertFalse(opener.open(state, saved, forceNewTab = true).success)
+            assertFalse(opener.open(window(), saved).success)
+            assertFalse(opener.open(state, saved.copy(tabConfig = saved.tabConfig.copy(filePath = " "))).success)
+        }
 }

@@ -47,4 +47,16 @@ class BookmarkTabConfigTest {
         assertEquals("https://current.example/path", saved.url)
         assertEquals(tab.title, saved.title)
     }
+
+    @Test fun `only working tree file diffs retain their original project`() {
+        val tab =
+            ai.rever.boss.plugin.tab.diff.DiffTabInfo
+                .create("deleted.txt")
+        val saved = convertTabInfoToTabConfig(tab, "/project")
+        assertEquals("diff", saved.type)
+        assertEquals("/project", saved.workingDirectory)
+        listOf(tab.copy(staged = true), tab.copy(fromRef = "HEAD"), tab.copy(fromRef = "a", toRef = "b")).forEach {
+            assertEquals("unknown", convertTabInfoToTabConfig(it, "/project").type)
+        }
+    }
 }

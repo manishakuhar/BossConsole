@@ -9,6 +9,10 @@ import ai.rever.boss.plugin.bookmark.Bookmark
 import ai.rever.boss.plugin.bookmark.BookmarkOpenResult
 import ai.rever.boss.plugin.tab.codeeditor.CodeEditorTabType
 import ai.rever.boss.plugin.tab.codeeditor.EditorTabInfo
+import ai.rever.boss.plugin.tab.composer.ComposerTabInfo
+import ai.rever.boss.plugin.tab.composer.ComposerTabType
+import ai.rever.boss.plugin.tab.diff.DiffTabInfo
+import ai.rever.boss.plugin.tab.diff.DiffTabType
 import ai.rever.boss.plugin.tab.fluck.FluckTabType
 import ai.rever.boss.plugin.tab.jupyter.JupyterTabInfo
 import ai.rever.boss.plugin.tab.terminal.TerminalTabInfo
@@ -28,6 +32,7 @@ import java.util.UUID
 internal class BookmarkOpeningService(
     private val uiDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
     private val resolveDefaultDirectory: suspend (SplitViewState) -> String = ::bookmarkDefaultDirectory,
+    private val resolveProjectDirectory: (SplitViewState) -> String? = ::bookmarkProjectDirectory,
     private val checkPath: suspend (String, Boolean) -> Boolean = { path, directory ->
         withContext(Dispatchers.IO) {
             val file = File(path)
@@ -115,7 +120,7 @@ internal class BookmarkOpeningService(
             bookmarkTargetProblem(prepared) ?: if (type == null || !splitView.tabRegistry.isRegistered(type)) {
                 missingTool(config.type).message
             } else {
-                validate(prepared)
+                diffProjectProblem(prepared, splitView) ?: validate(prepared)
             }
         return when {
             problem != null -> failure(problem)
@@ -123,6 +128,16 @@ internal class BookmarkOpeningService(
             type == null || !splitView.tabRegistry.isRegistered(type) -> missingTool(config.type)
             else -> openValidated(splitView, panelId, prepared, forceNewTab)
         }
+    }
+
+    private fun diffProjectProblem(
+        config: TabConfig,
+        splitView: SplitViewState,
+    ): String? {
+        if (config.type != "diff") return null
+        val current = resolveProjectDirectory(splitView)?.let { File(it).absoluteFile.normalize().path }
+        val saved = config.workingDirectory?.let { File(it).absoluteFile.normalize().path }
+        return if (current != saved) "Open this bookmark in its saved project: $saved" else null
     }
 
     private fun openValidated(
@@ -133,12 +148,18 @@ internal class BookmarkOpeningService(
     ): BookmarkOpenResult {
         val component = requireNotNull(splitView.getPanel(panelId)).tabsComponent
         val existing =
-            if (forceNewTab) {
+            if (forceNewTab && config.type != "composer") {
                 -1
             } else {
                 component.tabsState.value.tabs
                     .indexOfFirst { matchesResource(config, it) }
             }
+        if (existing >= 0 && forceNewTab && config.type == "composer") {
+            return failure(
+                "This Composer session already has a tab in this pane. " +
+                    "Use Open to return to it; a second tab for the same session is not supported.",
+            )
+        }
         return if (existing >= 0) {
             val tabId =
                 component.tabsState.value.tabs[existing]
@@ -217,6 +238,14 @@ internal class BookmarkOpeningService(
                 )
             }
 
+            "diff" -> {
+                DiffTabInfo.create(requireNotNull(config.filePath)).copy(title = config.title)
+            }
+
+            "composer" -> {
+                ComposerTabInfo.create(requireNotNull(config.filePath), config.title)
+            }
+
             "jupyter" -> {
                 JupyterTabInfo.create(requireNotNull(config.filePath), config.title)
             }
@@ -233,6 +262,8 @@ internal class BookmarkOpeningService(
                 "browser" -> "Fluck Browser"
                 "editor" -> "Editor"
                 "terminal" -> "Terminal"
+                "diff" -> "Diff viewer"
+                "composer" -> "Composer"
                 else -> "Jupyter Notebook"
             }
         return failure("$name is unavailable. Enable or install it in Tools, then open the bookmark again.")
@@ -247,6 +278,8 @@ internal fun bookmarkTabType(type: String): TabTypeId? =
         "editor" -> CodeEditorTabType.typeId
         "terminal" -> TerminalTabType.typeId
         "jupyter" -> JupyterTabInfo.TYPE_ID
+        "diff" -> DiffTabType.typeId
+        "composer" -> ComposerTabType.typeId
         else -> null
     }
 
@@ -259,39 +292,51 @@ internal fun matchesResource(
         "browser" -> tab is FluckTabInfo && tab.currentUrl == config.url
         "editor" -> tab is EditorTabInfo && tab.filePath == config.filePath
         "jupyter" -> tab is JupyterTabInfo && tab.filePath == config.filePath
+        "diff" -> matchesWorkingTreeDiff(config, tab)
+        "composer" -> matchesComposerSession(config, tab)
         else -> false
     }
 
+private fun matchesWorkingTreeDiff(
+    config: TabConfig,
+    tab: TabInfo,
+): Boolean {
+    if (tab !is DiffTabInfo || tab.staged) return false
+    return tab.fromRef == null && tab.toRef == null && tab.filePath == config.filePath
+}
+
+private fun matchesComposerSession(
+    config: TabConfig,
+    tab: TabInfo,
+): Boolean {
+    if (tab.typeId != ComposerTabType.typeId) return false
+    val session = if (tab is ComposerTabInfo) tab.sessionId else tab.id
+    return session == config.filePath
+}
+
 /** Synchronous save eligibility; opening additionally checks current provider and path availability. */
 internal fun bookmarkTargetProblem(config: TabConfig): String? =
+    when (config.type) {
+        "browser" -> if (config.url.isNullOrBlank()) "Save a web address before bookmarking this tab." else null
+        "editor", "jupyter" -> savedFileProblem(config.filePath)
+        "diff" -> diffBookmarkPathProblem(config)
+        "composer" -> if (config.filePath.isNullOrBlank()) "Save a Composer session before bookmarking it." else null
+        "terminal" -> terminalFolderProblem(config.workingDirectory)
+        else -> "This tab type cannot be restored from a bookmark."
+    }
+
+private fun savedFileProblem(path: String?): String? =
     when {
-        bookmarkTabType(config.type) == null -> {
-            "This tab type cannot be restored from a bookmark."
-        }
+        path.isNullOrBlank() -> "Save this file before creating a bookmark."
+        !File(path).isAbsolute -> "Choose an absolute saved file path for this bookmark."
+        else -> null
+    }
 
-        config.type == "browser" && config.url.isNullOrBlank() -> {
-            "Save a web address before bookmarking this tab."
-        }
-
-        config.type in setOf("editor", "jupyter") && config.filePath.isNullOrBlank() -> {
-            "Save this file before creating a bookmark."
-        }
-
-        config.type in setOf("editor", "jupyter") && !File(requireNotNull(config.filePath)).isAbsolute -> {
-            "Choose an absolute saved file path for this bookmark."
-        }
-
-        config.type == "terminal" && !config.workingDirectory.isNullOrBlank() &&
-            !File(
-                requireNotNull(config.workingDirectory),
-            ).isAbsolute
-        -> {
-            "Choose an absolute startup folder for this terminal bookmark."
-        }
-
-        else -> {
-            null
-        }
+private fun terminalFolderProblem(path: String?): String? =
+    if (!path.isNullOrBlank() && !File(path).isAbsolute) {
+        "Choose an absolute startup folder for this terminal bookmark."
+    } else {
+        null
     }
 
 private suspend fun bookmarkDefaultDirectory(state: SplitViewState): String {
@@ -308,4 +353,30 @@ private suspend fun bookmarkDefaultDirectory(state: SplitViewState): String {
                 ?.path
         }
     return withContext(Dispatchers.IO) { DefaultWorkingDirectory.resolve(projectPath) }
+}
+
+private fun bookmarkProjectDirectory(state: SplitViewState): String? =
+    SplitViewStateRegistry.states.value.entries.firstOrNull { it.value === state }?.key?.let {
+        WindowProjectStateRegistry
+            .get(it)
+            ?.selectedProject
+            ?.value
+            ?.path
+    }
+
+private fun diffBookmarkPathProblem(config: TabConfig): String? {
+    if (config.workingDirectory.isNullOrBlank()) {
+        return "This diff has no saved project. Save it again from its original project."
+    }
+    return runCatching {
+        val project = File(config.workingDirectory!!).toPath().normalize()
+        val file = config.filePath?.takeIf { it.isNotBlank() }?.let { project.resolve(it).normalize() }
+        if (!project.isAbsolute || file == null) {
+            "Choose a file within the saved diff project."
+        } else if (file == project || !file.startsWith(project)) {
+            "Choose a file within the saved diff project."
+        } else {
+            null
+        }
+    }.getOrElse { "The saved diff file path is invalid." }
 }

@@ -2556,10 +2556,15 @@ class BossTabsComponent(
 internal fun convertTabInfoToTabConfig(
     tabInfo: TabInfo,
     defaultWorkingDirectory: String = DefaultWorkingDirectory.nominalPath(),
-): TabConfig =
-    ai.rever.boss.components.workspaces
-        .extractTabConfig(tabInfo, defaultWorkingDirectory)
-        ?: TabConfig(type = "unknown", title = tabInfo.title)
+): TabConfig {
+    val extracted =
+        ai.rever.boss.components.workspaces
+            .extractTabConfig(tabInfo, defaultWorkingDirectory)
+            ?: TabConfig(type = "unknown", title = tabInfo.title)
+    // Diff renderers resolve paths against the active project. Remember that
+    // context so reopening cannot silently compare a different project's file.
+    return if (extracted.type == "diff") extracted.copy(workingDirectory = defaultWorkingDirectory) else extracted
+}
 
 /**
  * Whether the surrounding composition is inside a [BossMainWindowPanel].

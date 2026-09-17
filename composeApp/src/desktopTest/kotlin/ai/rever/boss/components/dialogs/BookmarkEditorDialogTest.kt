@@ -444,4 +444,27 @@ class BookmarkEditorDialogTest {
 
         override suspend fun reload() = Unit
     }
+
+    @Test fun `diff and composer form targets preserve project and session semantics`() {
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined)
+        val diff =
+            BookmarkEditorState(
+                provider,
+                TabConfig("diff", "Diff", filePath = "before.txt", workingDirectory = "/project"),
+                null,
+                null,
+                scope,
+            )
+        diff.target = "after.txt"
+        assertEquals("after.txt", diff.edited.filePath)
+        assertEquals("/project", diff.edited.workingDirectory)
+        assertEquals(null, diff.problem)
+        diff.target = "../other"
+        assertEquals(false, diff.problem == null)
+        val sessionConfig = TabConfig("composer", "Session", filePath = "session:one")
+        val composer = BookmarkEditorState(provider, sessionConfig, null, null, scope)
+        composer.target = "session:two"
+        assertEquals("session:two", composer.edited.filePath)
+        assertEquals(null, composer.problem)
+    }
 }

@@ -56,7 +56,12 @@ internal class BookmarkEditorState(
         config.copy(
             title = name.trim(),
             url = if (config.type == "browser") target.trim() else config.url,
-            filePath = if (config.type in setOf("editor", "jupyter")) target.trim() else config.filePath,
+            filePath =
+                when (config.type) {
+                    "composer" -> target
+                    "editor", "jupyter", "diff" -> target.trim()
+                    else -> config.filePath
+                },
             workingDirectory =
                 if (config.type == "terminal") target.trim().ifBlank { null } else config.workingDirectory,
             initialCommand = if (config.type == "terminal") command.ifBlank { null } else config.initialCommand,

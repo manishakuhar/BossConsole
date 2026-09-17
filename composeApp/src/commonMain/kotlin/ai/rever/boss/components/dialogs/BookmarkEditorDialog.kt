@@ -306,6 +306,8 @@ private fun bookmarkTypeDescription(type: String): String =
         "terminal" -> "Terminal shortcut"
         "editor" -> "File bookmark"
         "jupyter" -> "Notebook bookmark"
+        "diff" -> "Working-tree diff bookmark"
+        "composer" -> "Composer session bookmark"
         else -> "Saved shortcut"
     }
 
@@ -313,5 +315,7 @@ private fun bookmarkTargetLabel(type: String): String =
     when (type) {
         "browser" -> "Website address"
         "terminal" -> "Startup folder (optional)"
+        "diff" -> "File path within saved project"
+        "composer" -> "Session ID"
         else -> "File path"
     }

@@ -428,9 +428,6 @@ fun main(args: Array<String>) {
     // the entire disk. Project indexing belongs to the editor plugin's project lifecycle.
     // Phase 8: Compose Application Entry & Window Loop
     // -------------------------------------------------------------------------
-    val macOSLifecycleRegistration =
-        MacOSApplicationLifecycle.install(canCreateMainWindow::get)
-
     application {
         // Provide a custom WindowExceptionHandlerFactory that intercepts plugin crashes
         // during composition. Compose's default factory shows an error dialog and disposes

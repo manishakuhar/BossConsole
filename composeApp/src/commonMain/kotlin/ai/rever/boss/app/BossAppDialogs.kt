@@ -68,11 +68,13 @@ import ai.rever.boss.plugin.ui.BossTheme
 import ai.rever.boss.project.DefaultWorkingDirectory
 import ai.rever.boss.run.RunConfigurationManager
 import ai.rever.boss.run.RunExecutionService
+import ai.rever.boss.search.SPOTLIGHT_UNSUPPORTED_COMMAND_IDS
 import ai.rever.boss.search.SearchSources
 import ai.rever.boss.search.ToolSearchRecord
 import ai.rever.boss.search.rememberSpotlightFileIndexer
 import ai.rever.boss.services.auth.UserDataStorage
 import ai.rever.boss.services.bookmarks.BookmarkAPIAccess
+import ai.rever.boss.services.terminal.TerminalAPIAccess
 import ai.rever.boss.settings.MICROKERNEL_MODE_CONFIRMATION_MESSAGE
 import ai.rever.boss.settings.MicrokernelModePreference
 import ai.rever.boss.terminal.TerminalLinkSettingsManager
@@ -90,6 +92,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -658,7 +661,46 @@ internal fun BossAppDialogs(state: BossAppState) {
                         MenuActionsHandler.triggerShowShortcutHelp(windowId)
                     }
 
-                    else -> {} // Unknown command
+                    else -> {
+                        // Every tab-navigation and browser-history command Spotlight advertises
+                        // (BossConsole#700) - previously silently discarded here.
+                        when (val outcome = dispatchSpotlightTabBrowserCommand(actionId, windowId)) {
+                            is SpotlightDispatchOutcome.Dispatched -> {}
+
+                            // Recognized, but the state it needs (another tab, a closed-tab
+                            // history entry, a tab at that position) is not there right now.
+                            is SpotlightDispatchOutcome.Unavailable -> {
+                                StatusMessageManager.showMessage(
+                                    "\"${KeymapActions.getDescription(actionId)}\": ${outcome.reason}",
+                                    durationMs = 4_000L,
+                                )
+                            }
+
+                            SpotlightDispatchOutcome.NotRecognized -> {
+                                // A catalog id neither handled above, dispatched, nor named
+                                // unsupported - SpotlightCommandCoverageTest exists to catch this
+                                // before it ships. Reaching it here anyway (GlobalSearchService
+                                // already excludes SPOTLIGHT_UNSUPPORTED_COMMAND_IDS from
+                                // Spotlight's results, so this would mean a stale result list
+                                // from before a dismiss/reopen) is a wiring bug for an
+                                // unclassified id, not a user-facing limitation - log it there,
+                                // but show the same message either way rather than discarding
+                                // the selection with no signal.
+                                if (actionId !in SPOTLIGHT_UNSUPPORTED_COMMAND_IDS) {
+                                    logger.warn(
+                                        LogCategory.UI,
+                                        "Spotlight command has no dispatch route",
+                                        mapOf("actionId" to actionId),
+                                    )
+                                }
+                                val description = KeymapActions.getDescription(actionId)
+                                StatusMessageManager.showMessage(
+                                    "\"$description\" isn't available from Spotlight yet",
+                                    durationMs = 4_000L,
+                                )
+                            }
+                        }
+                    }
                 }
                 state.focusRequester.requestFocus()
             },
@@ -1151,6 +1193,22 @@ internal fun BossAppDialogs(state: BossAppState) {
                 state.focusRequester.requestFocus()
                 logger.info(LogCategory.SYSTEM, "Plugin wizard completed")
             },
+            onSetupBossTerm = {
+                if (TerminalAPIAccess.getProvider() == null) {
+                    StatusMessageManager.showMessage(
+                        "BOSS Term setup is unavailable. Update or reload Terminal Tab, then try again.",
+                    )
+                    logger.warn(LogCategory.SYSTEM, "BOSS Term setup requested without a Terminal Tab provider")
+                } else {
+                    coroutineScope.launch(Dispatchers.IO) {
+                        UserDataStorage.setPluginWizardCompleted(true)
+                    }
+                    state.showPluginInstallWizard = false
+                    state.terminalOnboardingOwnerStarted = true
+                    state.terminalOnboardingRequestGeneration++
+                    logger.info(LogCategory.SYSTEM, "Plugin wizard completed; opening BOSS Term setup")
+                }
+            },
             onInstallPlugins = { plugins, onProgress ->
                 when {
                     dynamicPluginManager != null -> {
@@ -1175,6 +1233,24 @@ internal fun BossAppDialogs(state: BossAppState) {
                     }
                 }
             },
+        )
+    }
+
+    if (state.terminalOnboardingOwnerStarted) {
+        val requestGeneration = state.terminalOnboardingRequestGeneration
+        val finishTerminalOnboarding: () -> Unit =
+            remember(requestGeneration) {
+                {
+                    state.terminalOnboardingOwnerStarted = false
+                    state.focusRequester.requestFocus()
+                }
+            }
+        // Terminal Tab observes this memoized callback identity as the explicit foreground
+        // generation. Its process-wide renderer ownership guard keeps another host window from
+        // mounting the same setup PTY.
+        TerminalAPIAccess.TerminalOnboardingWizard(
+            onDismiss = finishTerminalOnboarding,
+            onComplete = finishTerminalOnboarding,
         )
     }
 

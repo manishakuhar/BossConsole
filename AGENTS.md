@@ -2027,6 +2027,8 @@ workspace by selecting the tools you need." Tools install app-wide, not into a S
 
 ## Documentation
 
+- [Authenticated IPC rollout](docs/authenticated-ipc-rollout.md): paired runtime release, ownership, and credential lifetime.
+
 - [MCP for agent-less operators](docs/mcp-agentless-operators.md) - Toolbox kill-switches and attach path
 
 - [Core Subsystems](docs/SUBSYSTEMS.md) - Auth, UI, keyboard shortcuts, threading, default applications, runner, BossTerm
@@ -2038,9 +2040,6 @@ workspace by selecting the tools you need." Tools install app-wide, not into a S
 - [Role Creation](docs/ROLE_CREATION_GUIDE.md) - Creating and managing roles
 - [Windows Deep Link](docs/WINDOWS_DEEP_LINK_SETUP.md) - Windows protocol handler setup
 - [Release Rebuild](docs/RELEASE_REBUILD_GUIDE.md) - Re-running release builds
-
-
-
 ### Governed MCP invocation (#371)
 
 The host policy applies to registry invocation; it does not isolate installed JVM
@@ -2074,6 +2073,7 @@ Provider trust also covers tools added by later versions and replacement plugins
 that provider id. Already queued sibling prompts still ask. Explicit tool ASK rules
 still override provider ALLOW. The Trusted plugins UI lists ALLOW rules only; hand-edited
 provider DENY rules currently require policy-file editing to remove.
+
 Preserve a backup before manual recovery of a damaged policy;
 the fault flow withholds all tools until recovery. No automatic quarantine UI is
 provided. Ledger redaction is bounded and best effort, not a guarantee for secrets
@@ -2083,6 +2083,23 @@ no second sandbox prompt. Explicit policies and session trust retain precedence.
 HIGH/CRITICAL names use the mutating default, while unknown names remain allowed
 by default. Risk reasons and sanitized arguments appear together in the existing
 approval dialog. #362 is closed pending extraction into a management plugin.
+
+## Process log authority and lifetime
+
+Process logs are host-owned infrastructure, not an OS sandbox. Log setup fails closed
+before spawning when the log root crosses an unapproved symlink, the filesystem cannot
+provide persistent Windows ACLs, or the native platform is unsupported. No child is
+started with unprotected fallback logs. Operators must use a supported private local
+log directory; setup failures must not expose credential-bearing environment values.
+
+Each process id shares one rotating writer across overlapping generations. Drain
+lifetimes follow the owned parent, not descendant EOF. After parent exit, each pipe
+drains only its observed remaining snapshot (at most 1 MiB); later descendant output
+is outside this log contract. Closing the read end can give a later descendant write
+EPIPE/SIGPIPE and terminate a native descendant that has not disabled SIGPIPE. Recording failure does not stop draining a live parent's
+output. Idle polling backs off to 100 ms and resets to 1 ms after output, so a busy
+small pipe does not pay a fixed 10 ms delay between batches. Retention is bounded
+per process id, not across all distinct process ids.
 
 **The bottom bar's "MCP: `<tool>`" status line is clickable into an activity log of the last 100
 calls this session.** Before this it was the only visibility into MCP activity at all - every
@@ -2159,3 +2176,54 @@ snapshots. Current saved rules (including ASK/default) are visible in expanded
 rows, and the summary distinguishes rules being replaced from new denials.
 Global None is a distinct deny-all preset, not Custom; Edit is the label at both
 levels. Search by plugin display name also matches its saved tool rules.
+
+## Process-wide plugin registrations belong to window lifetimes
+
+`DefaultPlugin` routes MCP/search providers, panel menus, settings pages, deep-link actions,
+shortcut providers and status-bar items through `WindowRegistrations`. The newest window's
+registration serves every window; unregistering it restores the newest surviving owner.
+Disabling or dynamically unregistering in one window therefore leaves another window's
+registration available. Per-window action dispatch is not implemented by this arbitration.
+
+Each window has a lifetime token. Release fences later registrations and snapshots admitted
+slots under a short owner lock; publication checks the fence under its slot lock. Plugin
+callbacks never run under the owner lock, and disposal does not wait on unowned slots.
+Restoring a shared id re-queries tools()/shortcuts() on the closing thread, so a slow surviving
+provider can delay that close. Replacement warnings and snapshot-at-registration semantics
+are intentional. Global access filters still apply independently of registration ownership.
+
+### Plugin Dev Staging & Launchpad Invariants
+
+- **Protected Plugins Overrule Dev JARs Unconditionally**:
+  When deduplicating or resolving dev vs. standard plugins, `isSystemPlugin` and `requiresRestartInsteadOfHotReload` plugins MUST NEVER be superseded by a dev JAR, regardless of file modification timestamps (`lastModified`). Never rely solely on additive bonuses (`versionBonus + lastModified`) without penalizing or filtering dev JARs on protected identities.
+
+- **Reload Forward & Rollback State Completeness**:
+  Hot-reload must support both active (`LOADED`) and inactive (`DISABLED`) plugins symmetrically:
+  - If a plugin was disabled prior to reload (`wasEnabled = false`), forward reload must install with `enabled = false` and accept `state == DISABLED` as an expected successful outcome.
+  - If the active user lacks RBAC permissions, forward reload must accept `state == DISABLED && !canAccess(manifest)` as a valid outcome.
+  - Rollback must restore `wasEnabled = false` and reinstall `v1.jar` in `DISABLED` state without uninstallation.
+
+- **Archive Traversal & Stream Bounds**:
+  Never trust `ZipEntry.size` alone for decompression limits, as `size == -1` in streaming ZIPs. Always enforce hard byte caps on the incoming `InputStream` (e.g. `readNBytes(MAX + 1)` or explicit counter bounds) to prevent heap exhaustion.
+
+- **Test Veracity Rules**:
+  - In deduplication tests, ALWAYS test with dev JAR `lastModified` strictly greater than standard JAR `lastModified` to mirror real-world compiler outputs.
+  - Test the public reload pipeline (`DevPluginReloader.reload`) end-to-end rather than calling internal rollback helpers in isolation.
+
+### Health snapshots and intentional disables
+
+Sandbox disabled state alone is not evidence of watchdog failure: operator disable
+and failed registration also set it. `pluginHealthSnapshot` derives watchdog stops
+only from otherwise healthy rows and shares that set with row decoration and CLI
+findings. Manager errors take precedence over disabled state, so a failed
+registration stays visible while an ordinary disabled plugin is not degraded.
+
+Password import and secret request validation reject empty passwords, not
+whitespace-only passwords: whitespace can be the original credential. Never trim
+password values. Bitwarden JSON null encryption flags are treated like an absent
+flag; true or malformed non-null values remain rejected. KeePass format sniffing
+inspects at most 4096 characters; full XML parsing still enforces its own limits.
+
+Dev reload resolves staged JARs with manifest identity validation, matching startup.
+The scaffold wrapper source/hash is recorded in `resources/launcher/README.md`;
+update it with the pinned distribution checksum and scaffold validation together.

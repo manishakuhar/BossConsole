@@ -134,6 +134,27 @@ class BookmarkOpeningServiceTest {
         }
     }
 
+    @Test fun `default terminal bookmark resolves destination context on every opening`() =
+        runBlocking {
+            val state = window()
+            var destination = "/project/B"
+            val opener =
+                BookmarkOpeningService(
+                    Dispatchers.Unconfined,
+                    resolveDefaultDirectory = { destination },
+                    checkPath = { _, _ -> true },
+                )
+            val saved = bookmark(TabConfig("terminal", "Default", initialCommand = "pwd"))
+            opener.open(state, saved)
+            assertEquals("/project/B", (tabs(state).last() as TerminalTabInfo).workingDirectory)
+            destination = "/project/C"
+            opener.open(state, saved)
+            assertEquals("/project/C", (tabs(state).last() as TerminalTabInfo).workingDirectory)
+            opener.open(state, bookmark(saved.tabConfig.copy(workingDirectory = "/explicit")))
+            assertEquals("/explicit", (tabs(state).last() as TerminalTabInfo).workingDirectory)
+            assertTrue(tabs(state).filterIsInstance<TerminalTabInfo>().all { it.initialCommand == "pwd" })
+        }
+
     @Test fun `file and notebook use correct registered provider and exact path reuse`() =
         runBlocking {
             val state = window()

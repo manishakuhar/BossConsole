@@ -2,6 +2,7 @@ package ai.rever.boss.services.bookmarks
 
 import ai.rever.boss.components.plugin.tab_types.fluck.FluckTabInfo
 import ai.rever.boss.components.window_panel.SplitViewState
+import ai.rever.boss.components.window_panel.SplitViewStateRegistry
 import ai.rever.boss.plugin.api.TabInfo
 import ai.rever.boss.plugin.api.TabTypeId
 import ai.rever.boss.plugin.bookmark.Bookmark
@@ -13,6 +14,8 @@ import ai.rever.boss.plugin.tab.jupyter.JupyterTabInfo
 import ai.rever.boss.plugin.tab.terminal.TerminalTabInfo
 import ai.rever.boss.plugin.tab.terminal.TerminalTabType
 import ai.rever.boss.plugin.workspace.TabConfig
+import ai.rever.boss.project.DefaultWorkingDirectory
+import ai.rever.boss.window.WindowProjectStateRegistry
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -24,6 +27,7 @@ import java.util.UUID
 /** One capability-aware opening route. It never replaces tabs or consumes a pending split. */
 internal class BookmarkOpeningService(
     private val uiDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
+    private val resolveDefaultDirectory: suspend (SplitViewState) -> String = ::bookmarkDefaultDirectory,
     private val checkPath: suspend (String, Boolean) -> Boolean = { path, directory ->
         withContext(Dispatchers.IO) {
             val file = File(path)
@@ -100,18 +104,24 @@ internal class BookmarkOpeningService(
         forceNewTab: Boolean,
         targetStillAvailable: () -> Boolean,
     ): BookmarkOpenResult {
-        val type = bookmarkTabType(config.type)
+        val prepared =
+            if (config.type == "terminal" && DefaultWorkingDirectory.restored(config.workingDirectory) == null) {
+                config.copy(workingDirectory = resolveDefaultDirectory(splitView))
+            } else {
+                config
+            }
+        val type = bookmarkTabType(prepared.type)
         val problem =
-            bookmarkTargetProblem(config) ?: if (type == null || !splitView.tabRegistry.isRegistered(type)) {
+            bookmarkTargetProblem(prepared) ?: if (type == null || !splitView.tabRegistry.isRegistered(type)) {
                 missingTool(config.type).message
             } else {
-                validate(config)
+                validate(prepared)
             }
         return when {
             problem != null -> failure(problem)
             !targetStillAvailable() -> failure("The target pane was closed or changed. Open the bookmark again.")
             type == null || !splitView.tabRegistry.isRegistered(type) -> missingTool(config.type)
-            else -> openValidated(splitView, panelId, config, forceNewTab)
+            else -> openValidated(splitView, panelId, prepared, forceNewTab)
         }
     }
 
@@ -283,3 +293,19 @@ internal fun bookmarkTargetProblem(config: TabConfig): String? =
             null
         }
     }
+
+private suspend fun bookmarkDefaultDirectory(state: SplitViewState): String {
+    val windowId =
+        SplitViewStateRegistry.states.value.entries
+            .firstOrNull { it.value === state }
+            ?.key
+    val projectPath =
+        windowId?.let {
+            WindowProjectStateRegistry
+                .get(it)
+                ?.selectedProject
+                ?.value
+                ?.path
+        }
+    return withContext(Dispatchers.IO) { DefaultWorkingDirectory.resolve(projectPath) }
+}

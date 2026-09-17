@@ -2553,49 +2553,13 @@ class BossTabsComponent(
 /**
  * Convert TabInfo to TabConfig for bookmark storage
  */
-internal fun convertTabInfoToTabConfig(tabInfo: TabInfo): TabConfig =
-    when (tabInfo) {
-        is FluckTabInfo -> {
-            TabConfig(
-                type = "browser",
-                title = tabInfo.title,
-                url = tabInfo.currentUrl,
-                faviconCacheKey = tabInfo.faviconCacheKey,
-            )
-        }
-
-        is EditorTabInfo -> {
-            TabConfig(
-                type = "editor",
-                title = tabInfo.title,
-                filePath = tabInfo.filePath,
-            )
-        }
-
-        is ai.rever.boss.plugin.api.TerminalTabInfoInterface -> {
-            TabConfig(
-                type = "terminal",
-                title = tabInfo.title,
-                workingDirectory = tabInfo.workingDirectory,
-                initialCommand = tabInfo.initialCommand,
-            )
-        }
-
-        is JupyterTabInfo -> {
-            TabConfig(
-                type = "jupyter",
-                title = tabInfo.title,
-                filePath = tabInfo.filePath,
-            )
-        }
-
-        else -> {
-            TabConfig(
-                type = "unknown",
-                title = tabInfo.title,
-            )
-        }
-    }
+internal fun convertTabInfoToTabConfig(
+    tabInfo: TabInfo,
+    defaultWorkingDirectory: String = DefaultWorkingDirectory.nominalPath(),
+): TabConfig =
+    ai.rever.boss.components.workspaces
+        .extractTabConfig(tabInfo, defaultWorkingDirectory)
+        ?: TabConfig(type = "unknown", title = tabInfo.title)
 
 /**
  * Whether the surrounding composition is inside a [BossMainWindowPanel].

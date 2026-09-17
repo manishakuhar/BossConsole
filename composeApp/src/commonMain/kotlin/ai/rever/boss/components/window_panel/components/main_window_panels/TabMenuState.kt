@@ -12,6 +12,7 @@ import ai.rever.boss.components.workspaces.workspaceManager
 import ai.rever.boss.plugin.api.TabInfo
 import ai.rever.boss.plugin.tab.codeeditor.EditorTabInfo
 import ai.rever.boss.plugin.tab.jupyter.JupyterTabInfo
+import ai.rever.boss.project.DefaultWorkingDirectory
 import ai.rever.boss.services.bookmarks.BookmarkAPIAccess
 import ai.rever.boss.services.bookmarks.TerminalBookmarkLinks
 import ai.rever.boss.services.bookmarks.bookmarkSaveProblem
@@ -19,6 +20,7 @@ import ai.rever.boss.services.bookmarks.rememberBookmarkCollections
 import ai.rever.boss.services.bookmarks.rememberBookmarkLibrary
 import ai.rever.boss.utils.revealInFileManager
 import ai.rever.boss.utils.revealInFileManagerLabel
+import ai.rever.boss.window.LocalWindowProjectState
 import ai.rever.boss.window.WindowOperations
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
@@ -124,6 +126,8 @@ fun BossTabsComponent.rememberTabMenuState(
     vertical: Boolean = false,
 ): TabMenuState {
     val tabsState = tabsState.subscribeAsState()
+    val selectedProject = LocalWindowProjectState.current?.selectedProject?.collectAsState()?.value
+    val defaultDirectory = selectedProject?.path?.takeIf { it.isNotBlank() } ?: DefaultWorkingDirectory.nominalPath()
 
     var showBookmarkDialog by remember { mutableStateOf(false) }
     var tabToBookmark by remember { mutableStateOf<TabInfo?>(null) }
@@ -153,7 +157,7 @@ fun BossTabsComponent.rememberTabMenuState(
             // buildList runs during composition (every tab-bar
             // recomposition, e.g. on every terminal output line), so
             // doing it here flips the active panel away from whichever
-            // split the user is actually in — stealing focus back to the
+            // split the user is actually in - stealing focus back to the
             // output-producing panel. Panel activation on right-click is
             // already handled by the panel's pointerInput press handler;
             // left-click activation by the tab onClick above.
@@ -203,7 +207,7 @@ fun BossTabsComponent.rememberTabMenuState(
             // Host tab types expose filePath directly. Dynamic plugin tabs (e.g. the
             // editor-tab plugin's EditorTabData) live in a plugin classloader we can't
             // reference by type, so fall back to reading a `filePath` getter reflectively
-            // — the same duck-typing the editor-tab plugin uses for host tab types.
+            // - the same duck-typing the editor-tab plugin uses for host tab types.
             // The reflected value is assumed absolute: revealInFileManager resolves via
             // File(path).absolutePath, so a relative path would resolve against the CWD.
             val revealPath =
@@ -237,7 +241,7 @@ fun BossTabsComponent.rememberTabMenuState(
             @Suppress("UNUSED_EXPRESSION")
             collections
 
-            val tabConfig = convertTabInfoToTabConfig(config)
+            val tabConfig = convertTabInfoToTabConfig(config, defaultDirectory)
             val existingIds = BookmarkAPIAccess.findBookmarkForTab(tabConfig)
             val matchedId =
                 if (tabConfig.type == "terminal") {
@@ -374,7 +378,7 @@ fun BossTabsComponent.rememberTabMenuState(
         deleteBookmark = { deleteTarget = it },
         dialogs = {
             val editedConfig =
-                bookmarkToEdit?.tabConfig ?: tabToBookmark?.let(::convertTabInfoToTabConfig)
+                bookmarkToEdit?.tabConfig ?: tabToBookmark?.let { convertTabInfoToTabConfig(it, defaultDirectory) }
             if (showBookmarkDialog && editedConfig != null) {
                 if (library != null) {
                     BookmarkEditorDialog(

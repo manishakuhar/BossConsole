@@ -126,7 +126,11 @@ fun BossTabsComponent.rememberTabMenuState(
     vertical: Boolean = false,
 ): TabMenuState {
     val tabsState = tabsState.subscribeAsState()
-    val selectedProject = LocalWindowProjectState.current?.selectedProject?.collectAsState()?.value
+    val selectedProject =
+        LocalWindowProjectState.current
+            ?.selectedProject
+            ?.collectAsState()
+            ?.value
     val defaultDirectory = selectedProject?.path?.takeIf { it.isNotBlank() } ?: DefaultWorkingDirectory.nominalPath()
 
     var showBookmarkDialog by remember { mutableStateOf(false) }

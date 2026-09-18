@@ -33,7 +33,7 @@ import kotlin.test.assertTrue
 class RoomsNavigationIntegrationTest {
     @get:Rule val rule = createComposeRule()
 
-    private class Window(
+    private class RoomsWindowFixture(
         val name: String,
     ) {
         val registry = PanelRegistry()
@@ -77,8 +77,8 @@ class RoomsNavigationIntegrationTest {
     }
 
     @Test fun `opening uses active pane and reuses cached tab per window`() {
-        val first = Window("rooms-first")
-        val second = Window("rooms-second")
+        val first = RoomsWindowFixture("rooms-first")
+        val second = RoomsWindowFixture("rooms-second")
         rule.setContent {
             Row {
                 first.Content()
@@ -132,7 +132,7 @@ class RoomsNavigationIntegrationTest {
     }
 
     @Test fun `Rooms stays discoverable when removed from utility rail and search repeatedly reveals its tab`() {
-        val window = Window("rooms-search")
+        val window = RoomsWindowFixture("rooms-search")
         rule.setContent { window.Content() }
         rule.runOnIdle {
             assertTrue(window.model.getItemsForSlot(left.bottom, emptySet()).none { it.id == window.info.id.panelId })
